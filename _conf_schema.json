@@ -1,0 +1,77 @@
+{
+    "nonfriend_daily_limit": {
+        "description": "非好友每日播报次数上限：-1=无限制，0~10=每天最多播报几局（默认2）",
+        "type": "int",
+        "default": 2
+    },
+    "friend_poll_interval": {
+        "description": "好友轮询间隔（秒）T1：监控玩家是好友时，每隔这么久看一次好友列表里这局的观战入口还在不在，默认30",
+        "type": "int",
+        "default": 30
+    },
+    "poll_interval": {
+        "description": "非好友轮询间隔（秒）T2：监控玩家不是好友时，对局掉出观战列表后每隔这么久查一次牌谱，默认120",
+        "type": "int",
+        "default": 120
+    },
+    "monitor_valid_value": {
+        "description": "监控有效期数值：从添加监控开始算起，超过后将停止监控，届时需重新添加监控方可继续播报。默认 3（配合单位为「月」）",
+        "type": "int",
+        "default": 3
+    },
+    "monitor_valid_unit": {
+        "description": "监控有效期单位：day=日，week=周，month=月，forever=不限制（不限制时数值忽略，监控时间为「-」的老数据也不会过期）",
+        "type": "string",
+        "default": "month"
+    },
+    "monitor_three_player": {
+        "description": "是否监控三麻对局（关闭后不扫描三麻东/南场）",
+        "type": "bool",
+        "default": true
+    },
+    "monitor_east": {
+        "description": "是否监控东场对局（关闭后不扫描四人东/三人东）",
+        "type": "bool",
+        "default": true
+    },
+    "auto_approve_friends": {
+        "description": "是否自动同意登录账号收到的好友申请",
+        "type": "bool",
+        "default": true
+    },
+    "admin_only": {
+        "description": "是否仅允许管理员使用插件指令",
+        "type": "bool",
+        "default": false
+    },
+    "admins_id": {
+        "description": "管理员QQ号列表，admin_only开启时生效",
+        "type": "list",
+        "default": []
+    },
+    "cmd_add_name": {
+        "description": "新增监控的指令名（不带斜杠），默认 雀魂播报",
+        "type": "string",
+        "default": "雀魂播报"
+    },
+    "cmd_remove_name": {
+        "description": "删除监控的指令名（不带斜杠），默认 删除播报",
+        "type": "string",
+        "default": "删除播报"
+    },
+    "cmd_list_name": {
+        "description": "查看列表的指令名（不带斜杠），默认 雀魂播报列表",
+        "type": "string",
+        "default": "雀魂播报列表"
+    },
+    "cmd_help_name": {
+        "description": "帮助的指令名（不带斜杠），默认 雀魂播报帮助",
+        "type": "string",
+        "default": "雀魂播报帮助"
+    },
+    "cmd_paipu_name": {
+        "description": "牌谱回放指令名（不带斜杠），默认 雀魂牌谱",
+        "type": "string",
+        "default": "雀魂牌谱"
+    }
+}
