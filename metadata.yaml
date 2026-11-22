@@ -1,10 +1,13 @@
-﻿name: astrbot_plugin_majsoul_matchreport
+name: astrbot_plugin_majsoul_matchreport
 display_name: 雀魂战绩播报
 desc: 雀魂战绩实时播报插件，支持网页后台管理。
-support_platforms: aiocqhttp
 version: 1.0.0
-author: AstrBot User
-repo: https://github.com/astrbot
+author: 云上归雁
+repo: https://github.com/YunYan-888/astrbot_plugin_majsoul_matchreport
+support_platforms: aiocqhttp
+tags: 
+  - 雀魂
+  - 播报
 pages:
   - name: manage
     title: 雀魂播报管理
