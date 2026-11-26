@@ -1,13 +1,13 @@
-import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from math import ceil
 from types import SimpleNamespace
 from typing import TypeVar, cast
 
-logger = logging.getLogger("majsoul.review.parser")
+from astrbot.api import logger
 
-from ..lib.lq import (    HuleInfo,
+from ..lib.lq import (
+    HuleInfo,
     RecordAnGangAddGang,
     RecordBaBei,
     RecordChiPengGang,

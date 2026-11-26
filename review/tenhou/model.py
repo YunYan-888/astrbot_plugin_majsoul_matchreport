@@ -1,7 +1,8 @@
-import logging
 from enum import IntEnum
 from typing import List, Union, Optional, Protocol, Sequence, NamedTuple
 from dataclasses import field, dataclass
+
+from astrbot.api import logger
 
 from .cfg import cfg
 from .utils import pad_list
@@ -54,7 +55,7 @@ class Tile(NamedTuple):
             return Tile(int(text[0]), TileType[text[1].upper()])
         # 万象修罗等新玩法会带本地解析器不认识的牌面写法（癞子牌），兜底成 1m，
         # 与其让整局牌谱解析失败，不如让这一张牌显示错。
-        logging.getLogger("majsoul.review.model").debug(
+        logger.debug(
             "[majsoul-review] 未知牌面写法，按 1m 兜底: %r", text
         )
         if text and text[0].isdigit():
