@@ -25,27 +25,37 @@
         "default": "month"
     },
     "monitor_three_player": {
-        "description": "是否监控三麻对局（关闭后不扫描三麻东/南场）",
+        "description": "三麻播报：所有群聊的初始默认设置，各群可以用 /三麻播报 开 或 /三麻播报 关 单独调整（段位场三麻房间始终会被扫描）",
         "type": "bool",
         "default": true
     },
     "monitor_east": {
-        "description": "是否监控东场对局（关闭后不扫描四人东/三人东）",
+        "description": "东场播报：所有群聊的初始默认设置，各群可以用 /东场播报 开 或 /东场播报 关 单独调整（段位场所有房间始终会被扫描）",
         "type": "bool",
         "default": true
+    },
+    "monitor_friend": {
+        "description": "友人播报：所有群聊的初始默认设置，各群可以用 /友人播报 开 或 /友人播报 关 单独调整；只播报好友的友人场对局",
+        "type": "bool",
+        "default": false
+    },
+    "monitor_contest": {
+        "description": "比赛播报：所有群聊的初始默认设置，各群可以用 /比赛播报 开 或 /比赛播报 关 单独调整；只播报好友的比赛场对局",
+        "type": "bool",
+        "default": false
     },
     "auto_approve_friends": {
         "description": "是否自动同意登录账号收到的好友申请",
         "type": "bool",
         "default": true
     },
-    "admin_only": {
-        "description": "是否仅允许管理员使用插件指令",
-        "type": "bool",
-        "default": false
+    "log_retain_days": {
+        "description": "日志保存时间（天）：查询日志只保留这么多天，超过的会自动清理；默认 30 天",
+        "type": "int",
+        "default": 30
     },
     "admins_id": {
-        "description": "管理员QQ号列表，admin_only开启时生效",
+        "description": "额外授权的管理员QQ号列表：这些人不受群管理员限制，可以直接改本群的四个播报开关（可用于跨群授权）",
         "type": "list",
         "default": []
     },
@@ -73,5 +83,25 @@
         "description": "牌谱回放指令名（不带斜杠），默认 雀魂牌谱",
         "type": "string",
         "default": "雀魂牌谱"
+    },
+    "cmd_three_name": {
+        "description": "三麻播报开关的指令名（不带斜杠），默认 三麻播报",
+        "type": "string",
+        "default": "三麻播报"
+    },
+    "cmd_east_name": {
+        "description": "东场播报开关的指令名（不带斜杠），默认 东场播报",
+        "type": "string",
+        "default": "东场播报"
+    },
+    "cmd_friend_name": {
+        "description": "友人播报开关的指令名（不带斜杠），默认 友人播报",
+        "type": "string",
+        "default": "友人播报"
+    },
+    "cmd_contest_name": {
+        "description": "比赛播报开关的指令名（不带斜杠），默认 比赛播报",
+        "type": "string",
+        "default": "比赛播报"
     }
 }

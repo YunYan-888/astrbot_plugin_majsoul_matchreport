@@ -64,14 +64,99 @@ HEADERS = {
 DATA_FILE = "majsoul_matchreport_players.json"
 CHANGELOG_FILE = "CHANGELOG.md"
 LOG_DIR_NAME = "query_logs"
-LOG_RETAIN_DAYS = 30
-VERSION = "1.0.0"
+LOG_RETAIN_DAYS = 30          # 日志保留天数默认值（插件设置里可以改，见 LOG_RETAIN_KEY）
+LOG_RETAIN_KEY = "log_retain_days"
+LOG_RETAIN_MAX_DAYS = 3650
+VERSION = "1.1.0"
+# 本次版本的更新内容（写进数据目录的 CHANGELOG.md，README / 仓库里的 CHANGELOG.md 同源）
+CHANGELOG_BODY = (
+    "- 新增四个播报开关指令：/三麻播报、/东场播报、/友人播报、/比赛播报（参数 开 / 关），"
+    "四个开关按群聊独立保存，插件设置里的开关只作为所有群的初始默认值\n"
+    "- 段位场所有房间固定全部轮询，不再受插件设置里的三麻/东场开关影响；"
+    "发现监控玩家的对局后，再按「监控他的群里有没有开启对应播报」决定是否监控和播报\n"
+    "- 友人场 / 比赛场对局也会监控并播报（只有好友能看到这类对局）："
+    "房间那一行显示「友人场（房间号）」或「比赛场（比赛场ID）」，这两种对局不显示段位和近期战绩\n"
+    "- 「雀魂播报帮助」显示本群的播报开关，并列出四个新指令；私聊使用会提示请在群聊中使用\n"
+    "- 网页：指令设置新增四个播报指令名；监控列表的群聊页在「选择群聊」下面新增本群播报开关；"
+    "插件设置新增友人播报 / 比赛播报默认开关（默认关闭），并把「三麻监控 / 东场监控」改名为"
+    "「三麻播报 / 东场播报」\n"
+    "- 好友列表页显示每个账号的好友数量 / 上限（如 22/50），加满的标红提示\n"
+    "- 加好友提示只列「好友没加满」的前两个在线账号，按账号池顺序挑\n"
+    "- 四个播报指令固定只允许本群的群主 / 管理员（以及额外授权账号）使用，"
+    "插件设置里的「仅群管理员可用」开关已废弃\n"
+    "- 电脑座位显示「电脑（角色名）」，读不到角色名时显示「电脑」；牌谱里名字为 AI / 空的一律显示「电脑」\n"
+    "- 修复监控列表群聊下拉框在浅色模式下文字看不清的问题\n"
+    "- 机器人被踢出群聊 / 主动退出群聊时，自动删掉这个群的监控（该群的播报设置也一起清理）\n"
+    "- 同一个群里有多个监控玩家同桌时，对局结果只播报一条：玩家那一行写上所有人"
+    "（近期战绩跟在各自名字后面），和牌 / 放铳写明谁荣和的谁，两个人互相点炮只在和牌里写一次；"
+    "不同群的播报各自独立\n"
+    "- 指令设置页改成表格（功能 / 指令名 / 权限三列），四个播报指令共用一格「仅群管理员」"
+    "（固定，不能再关），额外授权的管理员填在表格下面；表格按内容宽度显示，不再拉满整页\n"
+    "- 好友上限取服务端返回的真实值（一般账号 50），拿不到时才按 50 兜底\n"
+    "- 「和牌 / 放铳」门槛：四麻播 4 番 30 符以上（4 番 20 符不播），满贯及以上也都播；"
+    "三麻只播跳满以上；牌谱里只写「満貫 / 跳満 / 倍満」不写番数的也能正确识别\n"
+    "- 一局播报只发一条牌谱链接（同桌多人时不再每人一条）\n"
+    "- 兼容万象修罗等新玩法：本地没有的房间名 / 段位 / 役种表、未知牌面写法和未知 action 都不再让"
+    "整局牌谱解析失败；真解析不了时也会把牌谱存下来（和牌详情可能缺失），并在查询日志里写明原因\n"
+    "- 牌谱解析增加诊断：保存的牌谱文件里带 `_diag`（动作来源 / 数量 / 被跳过的动作与报错），"
+    "查询日志里也会写出「牌谱里没有可解析的动作」的具体原因，方便继续排查新玩法\n"
+    "- 支持血战 / 万象修罗的结算动作（RecordHuleXueZhanMid / RecordHuleXueZhanEnd）："
+    "这类玩法以前整局一条和牌都解析不出来，现在能和牌播报、放铳、役满一样显示\n"
+    "- 役满牌面图片改用结算里的真实手牌：万象修罗会换牌、还有癞子，靠「配牌 + 摸打」还原出来的"
+    "牌面是错的（张数都可能对不上），现在解析时把和牌者的手牌一起存进牌谱，拼图优先用它\n"
+    "- 役满牌面图片支持癞子（白搭）与副露：癞子用 `resources/麻将牌面/bd.png` 这张专用牌面"
+    "（缺这张图时退回牌背加红框）并固定排最左边；排布按「手牌｜和了的那张｜副露」，"
+    "副露列在右边、被叫的那张横置，杠也是 4 张成组；结算手牌张数会按「14 + 杠数」核对\n"
+    "- 役满牌面图片张数核对不过时不再发图（避免发出牌数不对的图），原始 hand / ming 写进查询日志\n"
+    "- 插件设置新增「日志保存时间」（默认 30 天，可改 1~3650 天）：查询日志按这个天数自动清理；"
+    "把天数改小时会先弹「即将删除超期日志，是否确定？」，点确定立刻删掉已超期的日志并提示删了几个，"
+    "点取消输入框退回原来的天数\n"
+)
 # 群指令默认名（可在「指令设置」页修改）
 DEFAULT_CMD_ADD = "雀魂播报"
 DEFAULT_CMD_REMOVE = "删除播报"
 DEFAULT_CMD_LIST = "雀魂播报列表"
 DEFAULT_CMD_HELP = "雀魂播报帮助"
 DEFAULT_CMD_PAIPU = "雀魂牌谱"
+# 各群独立开关的四类播报指令默认名（可在「指令设置」页修改）
+DEFAULT_CMD_THREE = "三麻播报"
+DEFAULT_CMD_EAST = "东场播报"
+DEFAULT_CMD_FRIEND = "友人播报"
+DEFAULT_CMD_CONTEST = "比赛播报"
+# 四类播报：kind -> 中文名 / 插件设置里的默认开关 / 指令名配置键
+BROADCAST_KINDS = ("three", "east", "friend", "contest")
+BROADCAST_LABELS = {
+    "three": "三麻播报",
+    "east": "东场播报",
+    "friend": "友人播报",
+    "contest": "比赛播报",
+}
+BROADCAST_DEFAULT_KEYS = {
+    "three": "monitor_three_player",
+    "east": "monitor_east",
+    "friend": "monitor_friend",
+    "contest": "monitor_contest",
+}
+BROADCAST_DEFAULT_VALUES = {
+    "three": True,
+    "east": True,
+    "friend": False,
+    "contest": False,
+}
+BROADCAST_CMD_KEYS = {
+    "three": "cmd_three_name",
+    "east": "cmd_east_name",
+    "friend": "cmd_friend_name",
+    "contest": "cmd_contest_name",
+}
+BROADCAST_CMD_DEFAULTS = {
+    "three": DEFAULT_CMD_THREE,
+    "east": DEFAULT_CMD_EAST,
+    "friend": DEFAULT_CMD_FRIEND,
+    "contest": DEFAULT_CMD_CONTEST,
+}
+# 各群的播报开关存档：{group_id: {"three": 1/0, "east": 1/0, "friend": 1/0, "contest": 1/0}}
+GROUP_SETTINGS_FILE = "majsoul_matchreport_group_settings.json"
 THEME_FILE = "majsoul_matchreport_theme.json"
 # 四人模式ID -> 房间名称映射（仅四麻）
 FOUR_PLAYER_MODES = {
@@ -116,6 +201,9 @@ MODE_LABELS = {
 RANKED_MODE_IDS = set(MODE_LABELS) - {13, 14}
 # 三麻房间（17~26）；其余（含乱斗/友人戦）按四麻处理
 THREE_PLAYER_MODE_IDS = {17, 18, 19, 20, 21, 22, 23, 24, 25, 26}
+# 东场房间：名字以「东」结尾的（四人东 2/5/8/11/15、三人东 17/19/21/23/25、乱斗东 13）
+# 与 review/state_monitor.py 里的 EAST_MODE_IDS 一致，这里从 MODE_LABELS 推导，避免两处写死不同步
+EAST_MODE_IDS = {mode for mode, label in MODE_LABELS.items() if str(label).endswith("东")}
 # 播报里「近期战绩」只保留同模式最近 10 场
 RECENT_RANK_LIMIT = 10
 
@@ -459,6 +547,58 @@ def save_monitored(data: Dict[str, Dict]):
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _group_settings_path() -> Path:
+    base = StarTools.get_data_dir("astrbot_plugin_majsoul_matchreport")
+    base.mkdir(parents=True, exist_ok=True)
+    return base / GROUP_SETTINGS_FILE
+
+
+def load_group_settings() -> Dict[str, Dict[str, int]]:
+    """加载各群自己的播报开关 {group_id: {kind: 1/0}}；没设置过的群不在里面。"""
+    path = _group_settings_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig") or "{}")
+    except Exception as exc:
+        logger.warning(f"[MajsoulMonitor] 读取群播报设置失败: {exc}")
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    result: Dict[str, Dict[str, int]] = {}
+    for gid, values in data.items():
+        gid = str(gid or "").strip()
+        if not gid or not isinstance(values, dict):
+            continue
+        item: Dict[str, int] = {}
+        for kind in BROADCAST_KINDS:
+            if kind not in values:
+                continue
+            try:
+                item[kind] = 1 if bool(int(values.get(kind))) else 0
+            except (TypeError, ValueError):
+                item[kind] = 1 if values.get(kind) else 0
+        if item:
+            result[gid] = item
+    return result
+
+
+def save_group_settings(data: Dict[str, Dict[str, int]]) -> None:
+    path = _group_settings_path()
+    payload: Dict[str, Dict[str, int]] = {}
+    for gid, values in (data or {}).items():
+        gid = str(gid or "").strip()
+        if not gid or not isinstance(values, dict):
+            continue
+        item = {}
+        for kind in BROADCAST_KINDS:
+            if kind in values:
+                item[kind] = 1 if values.get(kind) else 0
+        if item:
+            payload[gid] = item
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def encode_account_id2(account_id: int) -> int:
     p = 6139246 ^ account_id
     h_mask = 67108863
@@ -484,6 +624,94 @@ def build_paipu_url(uuid: str, player_id: int, url_base: str = "https://game.maj
     encoded = encode_account_id2(player_id)
     base = (url_base or "https://game.maj-soul.com/").rstrip("/")
     return f"{base}/1/?paipu={uuid}_a{encoded}"
+
+
+def unranked_kind(mode_id: Any, contest_uid: Any = "", room_id: Any = 0) -> str:
+    """非段位场的类型：contest=比赛场，friend=友人场，other=其它非段位场，""=段位场。
+
+    和 review/state_monitor.py 的 AccountGameMonitor._unranked_kind 保持同一套判断。
+    """
+    if str(contest_uid or "").strip():
+        return "contest"
+    try:
+        room = int(room_id or 0)
+    except (TypeError, ValueError):
+        room = 0
+    if room > 0:
+        return "friend"
+    try:
+        mode = int(mode_id or 0)
+    except (TypeError, ValueError):
+        mode = 0
+    try:
+        from review.state_monitor import LIVE_MODE_IDS as _live_mode_ids
+    except Exception:
+        _live_mode_ids = RANKED_MODE_IDS
+    if mode and mode not in _live_mode_ids:
+        return "other"
+    return ""
+
+
+def unranked_label(kind: str, contest_uid: str = "", room_id: int = 0) -> str:
+    """非段位场的房间性质文字：友人场（房间号）/ 比赛场（比赛场ID）。"""
+    kind = str(kind or "")
+    contest = str(contest_uid or "").strip()
+    try:
+        room = int(room_id or 0)
+    except (TypeError, ValueError):
+        room = 0
+    if kind == "contest":
+        return f"比赛场（{contest}）" if contest else "比赛场"
+    if kind == "friend":
+        return f"友人场（{room}）" if room else "友人场"
+    if contest:
+        return f"比赛场（{contest}）"
+    if room:
+        return f"友人场（{room}）"
+    return "非段位场"
+
+
+def notice_field(raw: Any, name: str, default: Any = "") -> str:
+    """从平台原始通知事件里取字段（dict 或对象都支持）。"""
+    if isinstance(raw, dict):
+        value = raw.get(name, default)
+    else:
+        value = getattr(raw, name, default)
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def group_leave_info(raw: Any) -> Tuple[str, str]:
+    """识别「机器人自己被踢出群聊 / 主动退出群聊」的群成员减少事件。
+
+    返回 (群号, 原因文字)；不是这类事件时返回 ("", "")。
+    """
+    if notice_field(raw, "post_type") != "notice":
+        return "", ""
+    if notice_field(raw, "notice_type") != "group_decrease":
+        return "", ""
+    group_id = notice_field(raw, "group_id")
+    if not group_id:
+        return "", ""
+    sub_type = notice_field(raw, "sub_type")
+    self_id = notice_field(raw, "self_id")
+    user_id = notice_field(raw, "user_id")
+    is_self = bool(self_id) and user_id == self_id
+    if sub_type == "kick_me" or (sub_type == "kick" and is_self):
+        return group_id, "被踢出群聊"
+    if sub_type == "leave" and is_self:
+        return group_id, "主动退出群聊"
+    return "", ""
+
+
+class GroupLeaveFilter(filter.CustomFilter):
+    """只让「机器人自己被踢出 / 主动退出群聊」的事件唤醒处理器。"""
+
+    def filter(self, event: AstrMessageEvent, cfg: AstrBotConfig) -> bool:
+        raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        group_id, _reason = group_leave_info(raw)
+        return bool(group_id)
 
 
 # ── 牌谱回放 / 和牌详情 ──────────────────────────────
@@ -580,7 +808,10 @@ def _paipu_names(raw: Dict) -> List[str]:
     names = []
     for idx, item in enumerate(raw_names):
         name = str(item).strip()
-        names.append(name or f"座位{idx}")
+        # 好友房里带电脑时牌谱里的名字是「AI」或空的，统一写成「电脑」
+        if name in {"", "AI", "CPU", "BOT"}:
+            name = "电脑"
+        names.append(name)
     return names
 
 
@@ -699,7 +930,7 @@ def format_paipu_summary(raw: Dict, game_id: str = "") -> str:
         result_type = str(result[0])
         if result_type == "和了":
             for delta, winner, from_seat, point, yaku in _paipu_agari_items(result):
-                who = names[winner] if winner < len(names) else f"座位{winner}"
+                who = names[winner] if winner < len(names) else "电脑"
                 point = _paipu_text(point)
                 yaku = _paipu_sort_yaku([_paipu_text(y) for y in yaku])
                 if winner == from_seat:
@@ -709,7 +940,7 @@ def format_paipu_summary(raw: Dict, game_id: str = "") -> str:
                     action = "庄家自摸" if is_dealer else "闲家自摸"
                     lines.append(f"  和牌：{who} {action} {_paipu_han_fu_order(point)}")
                 else:
-                    from_who = names[from_seat] if from_seat < len(names) else f"座位{from_seat}"
+                    from_who = names[from_seat] if from_seat < len(names) else "电脑"
                     lines.append(f"  和牌：{who} 荣和 {from_who} {_paipu_han_fu_order(point)}")
                 if yaku:
                     lines.append("    役种：" + "、".join(yaku))
@@ -736,15 +967,20 @@ def format_paipu_summary(raw: Dict, game_id: str = "") -> str:
             scores = _paipu_int_list(logs[idx][1], len(names) or 4)
         lines.append("  结束点数：" + _paipu_scores(names, scores))
     head = raw.get("head") or {}
-    accounts = head.get("accounts") or []
-    seat_names = {int(a.get("seat", 0)): str(a.get("nickname") or "") for a in accounts}
+    accounts = list(head.get("accounts") or []) + list(head.get("robots") or [])
+    seat_names = {}
+    for a in accounts:
+        name = str(a.get("nickname") or "").strip()
+        if name in {"", "AI", "CPU", "BOT"}:
+            name = "电脑"
+        seat_names[int(a.get("seat", 0))] = name
     result_players = ((head.get("result") or {}).get("players") or [])
     if result_players:
         rows = []
         for player in result_players:
             seat = int(player.get("seat", 0))
             point = int(player.get("part_point_1") or 0)
-            rows.append((point, seat_names.get(seat) or f"座位{seat}"))
+            rows.append((point, seat_names.get(seat) or "电脑"))
         rows.sort(reverse=True)
         lines.append("")
         lines.append("最终点数：" + " / ".join(f"{name}:{point}" for point, name in rows))
@@ -758,6 +994,10 @@ def _paipu_han(point: str, yaku: List[str]) -> int:
         return int(match.group(1))
     if "役満" in point or "役满" in point:
         return 13
+    # 牌谱里「満貫」这种写法没有番数，按档位换算成番数（三倍满要排在倍满前面判断）
+    for key, han in (("三倍满", 11), ("倍满", 8), ("跳满", 6), ("满贯", 5)):
+        if key in point:
+            return han
     total = 0
     for item in yaku:
         found = re.search(r"(\d+)番", item)
@@ -766,6 +1006,79 @@ def _paipu_han(point: str, yaku: List[str]) -> int:
     if total:
         return total
     return 13 if any("役満" in y or "役满" in y for y in yaku) else 0
+
+
+# 和牌档位：0=不够满贯 1=满贯 2=跳满 3=倍满 4=三倍满 5=役满（含累计役满）
+PAIPU_TIER_NONE = 0
+PAIPU_TIER_MANGAN = 1
+PAIPU_TIER_HANEMAN = 2
+PAIPU_TIER_BAIMAN = 3
+PAIPU_TIER_SANBAIMAN = 4
+PAIPU_TIER_YAKUMAN = 5
+
+
+def _paipu_fu(point: str) -> int:
+    """从点数文本里取符数（取不到按 30 符，宁可少播也不多播）。"""
+    match = re.search(r"(\d+)符", str(point or ""))
+    if match:
+        try:
+            return int(match.group(1))
+        except (TypeError, ValueError):
+            pass
+    return 30
+
+
+def _paipu_score_tier(point: str, yaku: List[str]) -> int:
+    """这手牌到没到满贯 / 跳满 / 倍满 / 三倍满 / 役满。
+
+    满贯及以上不是只看番数：4 番要 40 符以上、3 番要 70 符以上才算满贯，
+    4 番 30 符（7700 / 11600）还不够满贯。
+    """
+    text = str(point or "")
+    if "役满" in text or "役満" in text:
+        return PAIPU_TIER_YAKUMAN
+    if "三倍满" in text:
+        return PAIPU_TIER_SANBAIMAN
+    if "倍满" in text:
+        return PAIPU_TIER_BAIMAN
+    if "跳满" in text:
+        return PAIPU_TIER_HANEMAN
+    if "满贯" in text:
+        return PAIPU_TIER_MANGAN
+    han = _paipu_han(text, yaku)
+    if han >= 13:          # 累计役满
+        return PAIPU_TIER_YAKUMAN
+    if han >= 11:
+        return PAIPU_TIER_SANBAIMAN
+    if han >= 8:
+        return PAIPU_TIER_BAIMAN
+    if han >= 6:
+        return PAIPU_TIER_HANEMAN
+    if han >= 5:
+        return PAIPU_TIER_MANGAN
+    fu = _paipu_fu(text)
+    if han == 4 and fu >= 40:
+        return PAIPU_TIER_MANGAN
+    if han == 3 and fu >= 70:
+        return PAIPU_TIER_MANGAN
+    return PAIPU_TIER_NONE
+
+
+def _paipu_keep_hand(point: str, yaku: List[str], sanma: bool = False) -> bool:
+    """这手牌要不要播：
+
+    - 四麻：满贯及以上（满贯 / 跳满 / 倍满 / 三倍满 / 役满）都播，另外 4 番 30 符以上也播
+      （4 番 20 符不算，4 番 30 符的 7700 / 11600 要播）；
+    - 三麻：只播跳满及以上。
+    """
+    tier = _paipu_score_tier(point, yaku)
+    if sanma:
+        return tier >= PAIPU_TIER_HANEMAN
+    if tier >= PAIPU_TIER_MANGAN:
+        return True
+    han = _paipu_han(point, yaku)
+    fu = _paipu_fu(point)
+    return han >= 4 and fu >= 30
 
 
 # 播报里役种的显示顺序：同一格里的写法都算同一类（例如「立直 / 双立直」）
@@ -802,11 +1115,10 @@ def _paipu_sort_yaku(yaku: List[str]) -> List[str]:
     return sorted(yaku, key=_paipu_yaku_rank)
 
 
-def _paipu_player_events(raw: Dict, seat: int, min_han: int = 4):
+def _paipu_player_events(raw: Dict, seat: int, sanma: bool = False):
     """返回 (和牌列表, 放铳列表)。
 
-    `min_han` 是播报门槛：四麻 4 番（满贯）起，三麻 8 番（倍满）起。
-    牌谱回放（/雀魂牌谱）保持 4 番。
+    门槛见 `_paipu_keep_hand`：四麻 4 番 30 符以上（满贯及以上也都播），三麻跳满以上。
     """
     names = _paipu_names(raw)
     wins: List[str] = []
@@ -818,8 +1130,8 @@ def _paipu_player_events(raw: Dict, seat: int, min_han: int = 4):
         dealer_seat = _paipu_dealer_seat(entry, len(names) or 4)
         result = entry[-1] if entry else []
         if isinstance(result, list) and result and str(result[0]) == "流し満貫":
-            # 流局满贯按满贯算，达不到倍满，三麻播报里跳过
-            if min_han <= 4:
+            # 流局满贯按满贯算，达不到跳满，三麻播报里跳过
+            if not sanma:
                 delta = _paipu_int_list(result[1] if len(result) > 1 else [])
                 if 0 <= seat < len(delta) and delta[seat] > 0:
                     wins.append(f"{label} 流局满贯 +{delta[seat]}")
@@ -827,10 +1139,10 @@ def _paipu_player_events(raw: Dict, seat: int, min_han: int = 4):
         for _delta, winner, from_seat, point, yaku in _paipu_agari_items(result):
             point = _paipu_text(point)
             yaku = _paipu_sort_yaku([_paipu_text(y) for y in yaku])
-            if _paipu_han(point, yaku) < min_han:
+            if not _paipu_keep_hand(point, yaku, sanma):
                 continue
             point = _paipu_han_fu_order(point)
-            winner_name = names[winner] if winner < len(names) else f"座位{winner}"
+            winner_name = names[winner] if winner < len(names) else "电脑"
             yaku_text = (" " + "、".join(yaku)) if yaku else ""
             if winner == seat:
                 if winner == from_seat:
@@ -843,6 +1155,57 @@ def _paipu_player_events(raw: Dict, seat: int, min_han: int = 4):
                 wins.append(f"{label} {action} {point}{yaku_text}")
             elif from_seat == seat and winner != from_seat:
                 deals.append(f"{label} 放铳给 {winner_name} {point}{yaku_text}")
+    return list(dict.fromkeys(wins)), list(dict.fromkeys(deals))
+
+
+def _paipu_merged_events(raw: Dict, seats_map: Dict[int, str], sanma: bool = False):
+    """一条播报里同桌有多个监控玩家时，合并和牌/放铳。
+
+    - 每行前面写上是哪个玩家的战绩；
+    - 荣和时写上被荣和的人是谁（"荣和某某"）；
+    - 两个监控玩家互相点炮时，只在和牌那行写「谁荣和的谁」，放铳里不再重复。
+    """
+    names = _paipu_names(raw)
+    nplayers = len(names) or 4
+    wins: List[str] = []
+    deals: List[str] = []
+    for entry in raw.get("log") or []:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            continue
+        label = _paipu_round_label(entry)
+        dealer_seat = _paipu_dealer_seat(entry, nplayers)
+        result = entry[-1] if entry else []
+        if isinstance(result, list) and result and str(result[0]) == "流し満貫":
+            # 流局满贯按满贯算，达不到跳满，三麻播报里跳过
+            if not sanma:
+                delta = _paipu_int_list(result[1] if len(result) > 1 else [])
+                for seat_idx in sorted(seats_map):
+                    if 0 <= seat_idx < len(delta) and delta[seat_idx] > 0:
+                        wins.append(f"{seats_map[seat_idx]} {label} 流局满贯 +{delta[seat_idx]}")
+            continue
+        for _delta, winner, from_seat, point, yaku in _paipu_agari_items(result):
+            point = _paipu_text(point)
+            yaku = _paipu_sort_yaku([_paipu_text(y) for y in yaku])
+            if not _paipu_keep_hand(point, yaku, sanma):
+                continue
+            point = _paipu_han_fu_order(point)
+            winner_name = names[winner] if winner < len(names) else "电脑"
+            yaku_text = (" " + "、".join(yaku)) if yaku else ""
+            tsumo = winner == from_seat
+            winner_owner = seats_map.get(winner)
+            dealer_owner = None if tsumo else seats_map.get(from_seat)
+            if winner_owner:
+                if tsumo:
+                    is_dealer = winner == dealer_seat
+                    if is_dealer and "all" not in point:
+                        point = point.rstrip() + "all"
+                    action = "庄家自摸" if is_dealer else "闲家自摸"
+                    wins.append(f"{winner_owner} {label} {action} {point}{yaku_text}")
+                else:
+                    dealt_name = names[from_seat] if from_seat < len(names) else "电脑"
+                    wins.append(f"{winner_owner} {label} 荣和{dealt_name} {point}{yaku_text}")
+            elif dealer_owner:
+                deals.append(f"{dealer_owner} {label} 放铳给 {winner_name} {point}{yaku_text}")
     return list(dict.fromkeys(wins)), list(dict.fromkeys(deals))
 
 
@@ -1211,11 +1574,170 @@ def _paipu_seat_tiles(entry, nplayers: int, seat: int):
 _PAIPU_HAND_LAST: Dict[str, int] = {"count": 0}
 
 
-def _paipu_winner_layout(entry, nplayers: int, winner: int, from_seat: int) -> Optional[Dict[str, Any]]:
+def _paipu_msjl_tile(text) -> tuple:
+    """雀魂牌面字符串（"1m"/"0p"）-> (花色, 点数, 是否赤)，认不出返回 (0, 0)。
+
+    "bd" 是万象修罗这类玩法里的癞子（白搭），当成 (9, 0) 的伪牌处理，
+    拼图时画成牌背加红框，不会被当成普通牌。
+    """
+    value = str(text or "").strip().lower()
+    if value == "bd":
+        return 9, 0
+    if len(value) < 2 or not value[0].isdigit():
+        return 0, 0
+    suit = {"m": 1, "p": 2, "s": 3, "z": 4}.get(value[1], 0)
+    if not suit:
+        return 0, 0
+    num = int(value[0])
+    if num == 0 and suit <= 3:  # 0m / 0p / 0s 是赤五
+        return suit, 5, True
+    if num <= 0:
+        return 0, 0
+    return suit, num
+
+
+def _paipu_msjl_tiles(items) -> List[tuple]:
+    """牌面字符串列表（含 "1m2m3m" 连写、副露 "kezi(1z,1z,1z)"）-> [(花色, 点数), ...]。"""
+    keys: List[tuple] = []
+    for item in items or []:
+        text = str(item or "").strip().lower()
+        if not text:
+            continue
+        if "(" in text and text.endswith(")"):
+            # 副露：kezi(1z,1z,1z) / minggang(4z,4z,4z,4z) / chi(2m,3m,4m)
+            for chunk in text[text.index("(") + 1 : -1].split(","):
+                key = _paipu_msjl_tile(chunk)
+                if key[0] > 0:
+                    keys.append(key)
+            continue
+        chunks = [text[i : i + 2] for i in range(0, len(text) - 1, 2)] if len(text) > 2 else [text]
+        for chunk in chunks:
+            key = _paipu_msjl_tile(chunk)
+            if key[0] > 0:
+                keys.append(key)
+    return keys
+
+
+def _paipu_record_hands(result) -> Dict[int, Dict[str, Any]]:
+    """结算里附带的真实手牌（解析牌谱时挂在每局结果最后，供拼牌面用）。"""
+    if not isinstance(result, list) or not result:
+        return {}
+    marker = result[-1]
+    if not isinstance(marker, dict):
+        return {}
+    hands = marker.get("hais")
+    if not isinstance(hands, dict):
+        return {}
+    out: Dict[int, Dict[str, Any]] = {}
+    for seat, info in hands.items():
+        try:
+            out[int(seat)] = info if isinstance(info, dict) else {}
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _paipu_tile_sort_key(key) -> tuple:
+    """牌面排序：癞子（白搭）固定排最左边，其余按 万 / 筒 / 索 / 字 升序。"""
+    if tuple(key)[:2] == (9, 0):
+        return (0, 0, 0)
+    return (1, key[0], key[1])
+
+
+def _paipu_record_melds(items) -> List[Dict[str, Any]]:
+    """结算里的副露（"kezi(1z,1z,1z)" / "minggang(4z,4z,4z,4z)"）-> 牌面用的组。
+
+    副露放到手牌右边单独成组，被叫的那张横过来放（跟牌谱回放的样子一致）。
+    """
+    melds: List[Dict[str, Any]] = []
+    kind_map = {
+        "kezi": "pon",
+        "peng": "pon",
+        "pon": "pon",
+        "chi": "chi",
+        "chi_": "chi",
+        "minggang": "daiminkan",
+        "daiminkan": "daiminkan",
+        "angang": "ankan",
+        "ankan": "ankan",
+        "kakan": "kakan",
+        "jiagang": "kakan",
+    }
+    for item in items or []:
+        text = str(item or "").strip()
+        if "(" not in text or not text.endswith(")"):
+            continue
+        kind = kind_map.get(text[: text.index("(")].strip().lower(), "pon")
+        keys = _paipu_msjl_tiles([text])
+        if not keys:
+            continue
+        melds.append(
+            {
+                "tiles": keys,
+                "kind": kind,
+                "called_index": 0 if kind in ("pon", "chi", "daiminkan") else -1,
+            }
+        )
+    melds.sort(key=lambda m: (m["tiles"][0][0], m["tiles"][0][1]))
+    return melds
+
+
+def _paipu_record_layout(record) -> Optional[Dict[str, Any]]:
+    """用结算里的手牌直接拼牌面（换牌/癞子玩法靠摸打还原是错的，这条路才准）。
+
+    排布跟牌谱回放一致：手牌（癞子最左）｜和了的那张｜副露（杠也在右边成组）。
+    """
+    if not isinstance(record, dict):
+        return None
+    hidden = _paipu_msjl_tiles(record.get("hand"))
+    melds = _paipu_record_melds(record.get("ming"))
+    meld_total = sum(len(meld["tiles"]) for meld in melds)
+    hu = _paipu_msjl_tile(record.get("hu_tile"))
+    winning = hu if hu[0] > 0 else None
+    # 杠比面子多一张，所以「14 张 + 杠数」才是这手牌应有的张数
+    kans = sum(1 for meld in melds if len(meld["tiles"]) == 4)
+    expected = 14 + kans
+    total = len(hidden) + (1 if winning else 0) + meld_total
+    if winning and total == expected + 1:
+        # 有的记录把手牌写成「含和了牌」，这时别重复算一张（13 张手牌 + 和了牌才是 14）
+        for index, key in enumerate(hidden):
+            if key[:2] == winning[:2]:
+                hidden.pop(index)
+                total -= 1
+                break
+    if not hidden and not winning:
+        return None
+    hidden.sort(key=_paipu_tile_sort_key)
+    if total != expected:
+        # 张数对不上时宁可不发图：拼出来的牌面肯定是错的（多见于新玩法的特殊牌没认出来），
+        # 详细信息写进查询日志，方便回来补牌面解析。
+        logger.warning(
+            f"[MajsoulMonitor] 结算手牌张数异常：{total} 张（期望 {expected} 张，副露 "
+            f"{len(melds)} 组其中杠 {kans} 组，认出的牌 {hidden}，原始 hand="
+            f"{record.get('hand')} ming={record.get('ming')}）"
+        )
+        return None
+    return {
+        "hidden": hidden,
+        "winning": winning,
+        "melds": melds,
+        "total": total,
+    }
+
+
+def _paipu_winner_layout(
+    entry, nplayers: int, winner: int, from_seat: int, record: Optional[Dict[str, Any]] = None
+) -> Optional[Dict[str, Any]]:
     """还原和牌牌面：手牌 / 胡的那张 / 副露（含被叫牌来自哪家）。
 
     带杠时总张数是 14 + 杠数（每组杠比面子多一张），荣和时手牌少一张、等放铳那张补进来。
+    结算里带了真实手牌时优先用它：万象修罗会换牌、还有癞子，靠摸打还原出来的牌面是错的。
     """
+    if record:
+        from_record = _paipu_record_layout(record)
+        if from_record:
+            _PAIPU_HAND_LAST["count"] = int(from_record.get("total") or 0)
+            return from_record
     try:
         winner = int(winner)
         from_seat = int(from_seat)
@@ -1225,7 +1747,7 @@ def _paipu_winner_layout(entry, nplayers: int, winner: int, from_seat: int) -> O
     hidden: List[tuple] = []
     for key, count in hand.items():
         hidden.extend([key] * max(0, int(count)))
-    hidden.sort(key=lambda k: (k[0], k[1]))
+    hidden.sort(key=_paipu_tile_sort_key)
     melds = [m for m in melds if m.get("tiles")]
     melds.sort(key=lambda m: (m["tiles"][0][0], m["tiles"][0][1]))
     kans = sum(1 for meld in melds if len(meld["tiles"]) == 4)
@@ -1252,9 +1774,11 @@ def _paipu_winner_layout(entry, nplayers: int, winner: int, from_seat: int) -> O
     return {"hidden": hidden, "winning": winning, "melds": melds, "total": total}
 
 
-def _paipu_winner_hand(entry, nplayers: int, winner: int, from_seat: int) -> List[tuple]:
+def _paipu_winner_hand(
+    entry, nplayers: int, winner: int, from_seat: int, record: Optional[Dict[str, Any]] = None
+) -> List[tuple]:
     """和牌者的整手牌（手牌 + 胡的那张 + 副露），还原失败返回空。"""
-    layout = _paipu_winner_layout(entry, nplayers, winner, from_seat)
+    layout = _paipu_winner_layout(entry, nplayers, winner, from_seat, record=record)
     if not layout:
         return []
     tiles = list(layout["hidden"])
@@ -1273,6 +1797,7 @@ def _paipu_tile_chars(tiles: List[tuple]) -> str:
 # 这套图是 68x88、牌面已带白底圆角方框，直接按高度等比缩放拼图即可。
 _PAIPU_TILE_DIR = Path(__file__).resolve().parent / "resources" / "麻将牌面"
 _PAIPU_TILE_BACK = "back.png"   # 暗杠外侧盖住的牌背
+_PAIPU_TILE_JOKER = "bd.png"    # 癞子（白搭）的牌面，缺失时退回牌背加红框
 _PAIPU_TILE_HEIGHT = 110
 _PAIPU_TILE_GAP = 1
 _PAIPU_TILE_MARGIN = 12
@@ -1321,11 +1846,12 @@ def _paipu_image_groups(layout) -> List[List[Dict[str, Any]]]:
     """整理成「手牌 | 胡的那张 | 副露组…」的若干组，并标出哪几张要横过来放。"""
     groups: List[List[Dict[str, Any]]] = []
     if isinstance(layout, dict):
-        hidden = [{"key": key, "rotated": False} for key in layout.get("hidden") or []]
+        hidden = [{"key": key, "rotated": False, "joker": key == (9, 0)} for key in layout.get("hidden") or []]
         if hidden:
             groups.append(hidden)
-        if layout.get("winning"):
-            groups.append([{"key": layout["winning"], "rotated": False}])
+        winning = layout.get("winning")
+        if winning:
+            groups.append([{"key": winning, "rotated": False, "joker": winning == (9, 0)}])
         for meld in layout.get("melds") or []:
             tiles = list(meld.get("tiles") or [])
             if not tiles:
@@ -1344,12 +1870,13 @@ def _paipu_image_groups(layout) -> List[List[Dict[str, Any]]]:
                         "rotated": index == called_index,
                         "back": ankan and index in (0, len(tiles) - 1),
                         "stack": kind == "kakan" and index == called_index,
+                        "joker": key == (9, 0),
                     }
                     for index, key in enumerate(tiles)
                 ]
             )
     else:
-        groups.append([{"key": key, "rotated": False} for key in layout or []])
+        groups.append([{"key": key, "rotated": False, "joker": key == (9, 0)} for key in layout or []])
     return [group for group in groups if group]
 
 
@@ -1363,7 +1890,7 @@ def _paipu_tile_image(tiles, out_path: Optional[Path] = None) -> Optional[Path]:
     if not groups:
         return None
     try:
-        from PIL import Image
+        from PIL import Image, ImageDraw
     except Exception:
         logger.debug("[MajsoulMonitor] 没有 Pillow，跳过役满牌面图片")
         return None
@@ -1373,7 +1900,14 @@ def _paipu_tile_image(tiles, out_path: Optional[Path] = None) -> Optional[Path]:
         for group in groups:
             row: List[Any] = []
             for item in group:
-                if item.get("back"):
+                joker = bool(item.get("joker"))
+                joker_face = False
+                if joker:
+                    path = _PAIPU_TILE_DIR / _PAIPU_TILE_JOKER
+                    joker_face = path.exists()
+                    if not joker_face:
+                        path = _PAIPU_TILE_DIR / _PAIPU_TILE_BACK
+                elif item.get("back"):
                     path = _PAIPU_TILE_DIR / _PAIPU_TILE_BACK
                 else:
                     name = _tenhou_tile_file_name(_tenhou_tile_code(item["key"]))
@@ -1387,34 +1921,42 @@ def _paipu_tile_image(tiles, out_path: Optional[Path] = None) -> Optional[Path]:
                 )
                 if item.get("rotated"):
                     image = image.rotate(-90, expand=True)
-                row.append((image, bool(item.get("stack"))))
+                row.append((image, bool(item.get("stack")), joker and not joker_face))
             rendered.append(row)
         width = _PAIPU_TILE_MARGIN * 2
         for index, row in enumerate(rendered):
             if index:
                 width += _PAIPU_TILE_GROUP_GAP
-            width += sum(image.width for image, _ in row) + _PAIPU_TILE_GAP * (len(row) - 1)
+            width += sum(image.width for image, _s, _j in row) + _PAIPU_TILE_GAP * (len(row) - 1)
         # 加杠的那张是压在横置牌正上方的，顶上要多留出一个牌位的高度
         extra_top = 0
         for row in rendered:
-            for image, stack in row:
+            for image, stack, _j in row:
                 if stack:
                     y = _PAIPU_TILE_MARGIN + height - image.height
                     extra_top = max(extra_top, _PAIPU_TILE_MARGIN - (y - image.height - _PAIPU_TILE_GAP))
         canvas = Image.new(
             "RGB", (width, height + _PAIPU_TILE_MARGIN * 2 + extra_top), (255, 255, 255)
         )
+        draw = ImageDraw.Draw(canvas)
         x = _PAIPU_TILE_MARGIN
         for index, row in enumerate(rendered):
             if index:
                 x += _PAIPU_TILE_GROUP_GAP
-            for image, stack in row:
+            for image, stack, joker in row:
                 # 下沿对齐：横过来的牌比竖牌矮，底边要落在同一条线上
                 y = extra_top + _PAIPU_TILE_MARGIN + height - image.height
                 canvas.paste(image, (x, y), image)
                 if stack:
                     # 加杠：第 4 张放在横置那张正上方，不叠压
                     canvas.paste(image, (x, y - image.height - _PAIPU_TILE_GAP), image)
+                if joker:
+                    # 癞子（白搭）画牌背 + 红框，跟普通牌区分开
+                    draw.rectangle(
+                        [x + 1, y + 1, x + image.width - 2, y + image.height - 2],
+                        outline=(200, 30, 30),
+                        width=3,
+                    )
                 x += image.width + _PAIPU_TILE_GAP
             x -= _PAIPU_TILE_GAP
         if out_path is not None:
@@ -1454,6 +1996,7 @@ def _paipu_yakuman_events(raw: Dict, seat: int) -> List[Dict[str, Any]]:
         label = _paipu_round_label(entry)
         dealer_seat = _paipu_dealer_seat(entry, nplayers)
         result = entry[-1] if entry else []
+        record_hands = _paipu_record_hands(result)
         for _delta, winner, from_seat, point, yaku in _paipu_agari_items(result):
             point_cn = _paipu_text(point)
             yaku_cn = [_paipu_text(y) for y in yaku]
@@ -1506,18 +2049,20 @@ def _paipu_yakuman_events(raw: Dict, seat: int) -> List[Dict[str, Any]]:
                 kind = "win"
             elif from_seat == seat and not tsumo:
                 kind = "deal"
-            layout = _paipu_winner_layout(entry, nplayers, winner, from_seat)
+            layout = _paipu_winner_layout(entry, nplayers, winner, from_seat, record=record_hands.get(winner))
             events.append(
                 {
                     "label": _paipu_round_label(entry),
                     "kind": kind,
                     "winner": winner,
-                    "winner_name": names[winner] if winner < len(names) else f"座位{winner}",
+                    "winner_name": names[winner] if winner < len(names) else "电脑",
                     "multiplier": multiplier,
                     "names": yakuman_names,
                     "yaku": [y for y in yaku_cn if str(y).strip()],
                     "layout": layout,
-                    "tiles": _paipu_winner_hand(entry, nplayers, winner, from_seat),
+                    "tiles": _paipu_winner_hand(
+                        entry, nplayers, winner, from_seat, record=record_hands.get(winner)
+                    ),
                 }
             )
     return events
@@ -1558,11 +2103,15 @@ class MajsoulMonitorPlugin(Star):
         self.config = config
         self.api = MajsoulMonitorAPI()
         self.monitored: Dict[str, Dict] = {}
+        # 各群自己的播报开关（三麻/东场/友人/比赛），没设置过的群按插件设置里的默认值
+        self.group_settings: Dict[str, Dict[str, int]] = {}
         self._task: Optional[asyncio.Task] = None
         self._running = False
         self._player_locks: Dict[str, asyncio.Lock] = {}
         self._monitor = None
         self._log_content_cache: Dict[str, tuple] = {}
+        # 群主/管理员身份缓存，避免每条指令都去问一次群成员列表
+        self._group_role_cache: Dict[str, tuple] = {}
 
     # ── 生命周期 ──────────────────────────────────────
     async def initialize(self):
@@ -1571,6 +2120,11 @@ class MajsoulMonitorPlugin(Star):
         except Exception as exc:
             logger.warning(f"[MajsoulMonitor] 迁移指令名异常: {exc}")
         self.monitored = load_monitored()
+        try:
+            self.group_settings = load_group_settings()
+        except Exception as exc:
+            logger.warning(f"[MajsoulMonitor] 加载群播报设置失败: {exc}")
+            self.group_settings = {}
         cfg_nodes = self.config.get("api_nodes", [])
         if cfg_nodes and isinstance(cfg_nodes, list):
             _API_NODES.clear()
@@ -1690,6 +2244,8 @@ class MajsoulMonitorPlugin(Star):
             log_event=self._log_system,
             search_urls=search_urls,
             server_url=self._server_url(),
+            # 每个玩家是否要播报这局，交给插件按「监控他的群开了哪些播报」判断
+            wants_game=self._wants_game,
         )
         await monitor.start()
         self._monitor = monitor
@@ -1780,6 +2336,123 @@ class MajsoulMonitorPlugin(Star):
         add_name = self._command_names()[0]
         return f"该玩家播报时限仅剩{days}天，请重新使用/{add_name}指令重置期限"
 
+    # ── 各群播报开关（三麻 / 东场 / 友人 / 比赛）─────────────
+    def _default_broadcast(self, kind: str) -> bool:
+        """插件设置里的默认开关：所有群的初始默认值。"""
+        key = BROADCAST_DEFAULT_KEYS.get(kind, "")
+        default = BROADCAST_DEFAULT_VALUES.get(kind, True)
+        if not key:
+            return default
+        return bool(self.config.get(key, default))
+
+    def _group_settings_of(self, group_id: Any) -> Dict[str, bool]:
+        """某个群的四个播报开关（没单独设置过的取插件设置里的默认值）。"""
+        gid = str(group_id or "").strip()
+        stored = self.group_settings.get(gid) if gid else None
+        result: Dict[str, bool] = {}
+        for kind in BROADCAST_KINDS:
+            if isinstance(stored, dict) and kind in stored:
+                try:
+                    result[kind] = bool(int(stored.get(kind)))
+                except (TypeError, ValueError):
+                    result[kind] = bool(stored.get(kind))
+            else:
+                result[kind] = self._default_broadcast(kind)
+        return result
+
+    def _group_setting(self, group_id: Any, kind: str) -> bool:
+        return bool(self._group_settings_of(group_id).get(kind, False))
+
+    def _set_group_setting(self, group_id: Any, kind: str, enabled: bool) -> bool:
+        """写入某个群的开关并落盘；返回是否真的发生了变化。"""
+        gid = str(group_id or "").strip()
+        if not gid or kind not in BROADCAST_KINDS:
+            return False
+        current = self._group_settings_of(gid)
+        if current.get(kind) == bool(enabled):
+            return False
+        values = dict(self.group_settings.get(gid) or {})
+        values[kind] = 1 if enabled else 0
+        self.group_settings[gid] = values
+        try:
+            save_group_settings(self.group_settings)
+        except Exception as exc:
+            logger.warning(f"[MajsoulMonitor] 保存群播报设置失败: {exc}")
+        return True
+
+    def _group_wants_ranked(self, group_id: Any, mode_id: Any) -> bool:
+        """这个群要不要播报这一场段位场（三麻看三麻开关、东场看东场开关）。"""
+        settings = self._group_settings_of(group_id)
+        try:
+            mode = int(mode_id or 0)
+        except (TypeError, ValueError):
+            mode = 0
+        if mode in THREE_PLAYER_MODE_IDS and not settings.get("three", True):
+            return False
+        if mode in EAST_MODE_IDS and not settings.get("east", True):
+            return False
+        return True
+
+    def _group_wants_unranked(self, group_id: Any, kind: str) -> bool:
+        """这个群要不要播报友人场 / 比赛场（这两种只对好友播报）。"""
+        if kind not in ("friend", "contest"):
+            return False
+        return self._group_setting(group_id, kind)
+
+    def _monitored_groups(self, entry: Dict, now: float = 0) -> List[str]:
+        """这个玩家还在有效期内的群。"""
+        current = now or time.time()
+        groups: List[str] = []
+        for gid in entry.get("group_ids") or []:
+            gid_s = str(gid or "").strip()
+            if not gid_s or gid_s in groups:
+                continue
+            if self._group_expired(entry, gid_s, current):
+                continue
+            groups.append(gid_s)
+        return groups
+
+    def _player_entry(self, account_id: int, nickname: str) -> Optional[Dict]:
+        """按 account_id / 昵称找到监控列表里的玩家条目。"""
+        key = self._match_monitored(int(account_id or 0), str(nickname or ""))
+        if not key:
+            return None
+        entry = self.monitored.get(key)
+        return entry if isinstance(entry, dict) else None
+
+    def _wants_game(
+        self,
+        target: Dict,
+        mode_id: int,
+        contest_uid: str = "",
+        room_id: int = 0,
+    ) -> bool:
+        """监控端的判断回调：这个玩家这一局有没有群要播报。
+
+        - 段位场：看监控该玩家的群有没有开三麻 / 东场播报；
+        - 友人场 / 比赛场：看有没有群开了友人 / 比赛播报
+          （这两种对局只能从好友列表里发现，非好友本来就看不到，不用再判断好友关系）。
+        """
+        if not isinstance(target, dict):
+            return False
+        account_id = int(target.get("account_id") or 0)
+        nickname = str(target.get("nickname") or "")
+        entry = self._player_entry(account_id, nickname)
+        if not entry:
+            return False
+        groups = self._monitored_groups(entry)
+        if not groups:
+            return False
+        contest = str(contest_uid or "").strip()
+        try:
+            room = int(room_id or 0)
+        except (TypeError, ValueError):
+            room = 0
+        if contest or room > 0:
+            kind = "contest" if contest else "friend"
+            return any(self._group_wants_unranked(gid, kind) for gid in groups)
+        return any(self._group_wants_ranked(gid, mode_id) for gid in groups)
+
     def _monitor_targets(self) -> List[Dict]:
         """当前需要监控的账号列表（跳过已过期；兼容老数据的 player_id 字段）。"""
         targets = []
@@ -1844,6 +2517,16 @@ class MajsoulMonitorPlugin(Star):
             "/astrbot_plugin_majsoul_matchreport/api/config",
             self._api_save_config, ["POST"],
             "保存插件配置"
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_majsoul_matchreport/api/group_settings",
+            self._api_get_group_settings, ["GET"],
+            "获取各群播报开关"
+        )
+        self.context.register_web_api(
+            "/astrbot_plugin_majsoul_matchreport/api/group_settings",
+            self._api_save_group_settings, ["POST"],
+            "保存各群播报开关"
         )
         self.context.register_web_api(
             "/astrbot_plugin_majsoul_matchreport/api/theme",
@@ -2240,6 +2923,71 @@ class MajsoulMonitorPlugin(Star):
             return jsonify({"ok": True, "message": "✅ " + message})
         return jsonify({"ok": False, "message": "❌ " + message})
 
+    def _remove_group_monitoring(self, group_id: str, reason: str = "") -> Dict[str, int]:
+        """机器人离开某个群后，把这个群相关的监控和播报设置全部删掉。
+
+        返回 {"players", "removed", "settings"}：
+        players=受影响（原本监控在这个群）的玩家数，removed=因此彻底不再监控的玩家数，
+        settings=是否顺带清掉了这个群的播报设置（1/0）。
+        """
+        gid = str(group_id or "").strip()
+        stats = {"players": 0, "removed": 0, "settings": 0}
+        if not gid:
+            return stats
+        changed = False
+        drop_keys: List[str] = []
+        for key, entry in list(self.monitored.items()):
+            if not isinstance(entry, dict):
+                continue
+            gids = []
+            for g in (entry.get("group_ids") or []):
+                text = str(g or "").strip()
+                if text and text not in gids:
+                    gids.append(text)
+            if gid not in gids:
+                continue
+            stats["players"] += 1
+            changed = True
+            rest = [g for g in gids if g != gid]
+            entry["group_ids"] = rest
+            mapping = entry.get("group_added_at")
+            if isinstance(mapping, dict) and gid in mapping:
+                mapping = dict(mapping)
+                mapping.pop(gid, None)
+                entry["group_added_at"] = mapping
+            if not rest:
+                drop_keys.append(key)
+        for key in drop_keys:
+            entry = self.monitored.pop(key, None) or {}
+            stats["removed"] += 1
+            account_id = int(entry.get("account_id") or entry.get("player_id") or 0)
+            if self._monitor is not None:
+                try:
+                    self._monitor.drop_pending_for_player(account_id, key)
+                except Exception as exc:
+                    logger.debug(f"[MajsoulMonitor] 清理待查牌谱失败: {exc}")
+        if self.group_settings.pop(gid, None) is not None:
+            stats["settings"] = 1
+            changed = True
+        if not changed:
+            return stats
+        try:
+            save_monitored(self.monitored)
+        except Exception as exc:
+            logger.warning(f"[MajsoulMonitor] 保存监控列表失败: {exc}")
+        try:
+            save_group_settings(self.group_settings)
+        except Exception as exc:
+            logger.warning(f"[MajsoulMonitor] 保存群播报设置失败: {exc}")
+        detail = (
+            f"群 {gid}（{reason or '不在群里'}）：清理 {stats['players']} 个玩家的监控，"
+            f"其中 {stats['removed']} 个玩家已无其他群、停止监控"
+            + ("，并删除该群的播报设置" if stats["settings"] else "")
+        )
+        self._write_query_log("SYSTEM", "退群清理监控", detail, "INFO")
+        logger.info(f"[MajsoulMonitor] {detail}")
+        return stats
+
     async def _api_delete_monitored(self):
         """API: 删除指定监控玩家；带 group_id 时只删这个群的监控（删完没群了才删玩家）。"""
         data = await request.get_json(silent=True) or {}
@@ -2466,6 +3214,59 @@ class MajsoulMonitorPlugin(Star):
             return jsonify({"ok": False, "message": f"保存主题失败: {exc}"})
         return jsonify({"ok": True, "theme": theme, "data": {"theme": theme}})
 
+    async def _api_get_group_settings(self):
+        """API: 返回各群的播报开关（含插件设置里的默认值）"""
+        gids = {str(gid) for gid in self.group_settings.keys() if str(gid or "").strip()}
+        for entry in self.monitored.values():
+            if not isinstance(entry, dict):
+                continue
+            for gid in entry.get("group_ids") or []:
+                gid_s = str(gid or "").strip()
+                if gid_s:
+                    gids.add(gid_s)
+        groups: Dict[str, Dict[str, bool]] = {
+            gid: self._group_settings_of(gid) for gid in sorted(gids)
+        }
+        return jsonify({"ok": True, "data": {
+            "groups": groups,
+            "kinds": list(BROADCAST_KINDS),
+            "labels": {kind: BROADCAST_LABELS[kind] for kind in BROADCAST_KINDS},
+            "defaults": {kind: self._default_broadcast(kind) for kind in BROADCAST_KINDS},
+        }})
+
+    async def _api_save_group_settings(self):
+        """API: 修改某个群的播报开关（支持一次改一个或多个）"""
+        data = await request.get_json(silent=True) or {}
+        group_id = str(data.get("group_id") or "").strip()
+        if not group_id:
+            return jsonify({"ok": False, "message": "缺少群号"})
+        changed: List[str] = []
+        settings = data.get("settings")
+        if isinstance(settings, dict):
+            for kind, val in settings.items():
+                if kind not in BROADCAST_KINDS:
+                    continue
+                if self._set_group_setting(group_id, kind, bool(val)):
+                    changed.append(BROADCAST_LABELS[kind])
+        else:
+            kind = str(data.get("kind") or "").strip()
+            if kind not in BROADCAST_KINDS:
+                return jsonify({"ok": False, "message": "缺少 kind 或 settings"})
+            if self._set_group_setting(group_id, kind, bool(data.get("enabled"))):
+                changed.append(BROADCAST_LABELS[kind])
+        current = self._group_settings_of(group_id)
+        if changed:
+            self._write_query_log("SYSTEM", "群播报设置", f"群 {group_id}：{'、'.join(changed)}", "INFO")
+            return jsonify({
+                "ok": True,
+                "message": f"群 {group_id} 的{'、'.join(changed)}已更新",
+                "data": {"group_id": group_id, "settings": current},
+            })
+        return jsonify({
+            "ok": True, "message": "无变更",
+            "data": {"group_id": group_id, "settings": current},
+        })
+
     async def _api_get_config(self):
         """API: 返回当前插件配置"""
         return jsonify({"ok": True, "data": {
@@ -2477,8 +3278,10 @@ class MajsoulMonitorPlugin(Star):
             "monitor_valid_unit": str(self.config.get("monitor_valid_unit", MONITOR_VALID_DEFAULT_UNIT)),
             "monitor_three_player": bool(self.config.get("monitor_three_player", True)),
             "monitor_east": bool(self.config.get("monitor_east", True)),
+            "monitor_friend": bool(self.config.get("monitor_friend", False)),
+            "monitor_contest": bool(self.config.get("monitor_contest", False)),
             "auto_approve_friends": bool(self.config.get("auto_approve_friends", True)),
-            "admin_only": bool(self.config.get("admin_only", False)),
+            "log_retain_days": self._log_retain_days(),
             "admins_id": list(self.config.get("admins_id", [])),
             "api_nodes": list(_API_NODES),
             "cmd_add_name": self.config.get("cmd_add_name", DEFAULT_CMD_ADD),
@@ -2486,6 +3289,10 @@ class MajsoulMonitorPlugin(Star):
             "cmd_list_name": self.config.get("cmd_list_name", DEFAULT_CMD_LIST),
             "cmd_paipu_name": self.config.get("cmd_paipu_name", DEFAULT_CMD_PAIPU),
             "cmd_help_name": self.config.get("cmd_help_name", DEFAULT_CMD_HELP),
+            "cmd_three_name": self.config.get("cmd_three_name", DEFAULT_CMD_THREE),
+            "cmd_east_name": self.config.get("cmd_east_name", DEFAULT_CMD_EAST),
+            "cmd_friend_name": self.config.get("cmd_friend_name", DEFAULT_CMD_FRIEND),
+            "cmd_contest_name": self.config.get("cmd_contest_name", DEFAULT_CMD_CONTEST),
         }})
 
     @staticmethod
@@ -2498,17 +3305,23 @@ class MajsoulMonitorPlugin(Star):
             "nonfriend_daily_limit": "非好友每日播报上限",
             "monitor_valid_value": "监控有效期数值",
             "monitor_valid_unit": "监控有效期单位",
-            "monitor_three_player": "三麻监控",
-            "monitor_east": "东场监控",
+            "monitor_three_player": "三麻播报默认开关",
+            "monitor_east": "东场播报默认开关",
+            "monitor_friend": "友人播报默认开关",
+            "monitor_contest": "比赛播报默认开关",
             "auto_approve_friends": "自动同意好友申请",
-            "admin_only": "仅管理员可用",
-            "admins_id": "管理员列表",
+            "log_retain_days": "日志保存时间",
+            "admins_id": "额外授权的管理员",
             "api_nodes": "牌谱屋查询节点",
             "cmd_add_name": "新增指令名",
             "cmd_remove_name": "删除指令名",
             "cmd_list_name": "列表指令名",
             "cmd_paipu_name": "牌谱指令名",
             "cmd_help_name": "帮助指令名",
+            "cmd_three_name": "三麻播报指令名",
+            "cmd_east_name": "东场播报指令名",
+            "cmd_friend_name": "友人播报指令名",
+            "cmd_contest_name": "比赛播报指令名",
         }
         return "、".join(labels.get(field, field) for field in fields)
 
@@ -2574,18 +3387,41 @@ class MajsoulMonitorPlugin(Star):
                 self.config["monitor_east"] = val
                 changed = True
                 changed_fields.append("monitor_east")
+        if "monitor_friend" in data:
+            val = bool(data["monitor_friend"])
+            if val != bool(self.config.get("monitor_friend", False)):
+                self.config["monitor_friend"] = val
+                changed = True
+                changed_fields.append("monitor_friend")
+        if "monitor_contest" in data:
+            val = bool(data["monitor_contest"])
+            if val != bool(self.config.get("monitor_contest", False)):
+                self.config["monitor_contest"] = val
+                changed = True
+                changed_fields.append("monitor_contest")
         if "auto_approve_friends" in data:
             val = bool(data["auto_approve_friends"])
             if val != bool(self.config.get("auto_approve_friends", True)):
                 self.config["auto_approve_friends"] = val
                 changed = True
                 changed_fields.append("auto_approve_friends")
-        if "admin_only" in data:
-            val = bool(data["admin_only"])
-            if val != bool(self.config.get("admin_only", False)):
-                self.config["admin_only"] = val
+        if LOG_RETAIN_KEY in data:
+            try:
+                val = int(data[LOG_RETAIN_KEY])
+            except (TypeError, ValueError):
+                val = LOG_RETAIN_DAYS
+            val = max(1, min(LOG_RETAIN_MAX_DAYS, val))
+            if val != int(self.config.get(LOG_RETAIN_KEY, LOG_RETAIN_DAYS)):
+                self.config[LOG_RETAIN_KEY] = val
                 changed = True
-                changed_fields.append("admin_only")
+                changed_fields.append(LOG_RETAIN_KEY)
+        # 页面把日志保存时间改小、用户点了「确定」时会带上这个标记，立刻清一次超期日志
+        purged = 0
+        if data.get("purge_logs"):
+            try:
+                purged = self._cleanup_old_logs()
+            except Exception as exc:
+                logger.warning(f"[MajsoulMonitor] 清理超期日志失败: {exc}")
         if "admins_id" in data:
             val = [str(x).strip() for x in data["admins_id"] if str(x).strip()]
             if val != list(self.config.get("admins_id", [])):
@@ -2630,6 +3466,16 @@ class MajsoulMonitorPlugin(Star):
                 self.config["cmd_paipu_name"] = val
                 changed = True
                 changed_fields.append("cmd_paipu_name")
+        for kind in BROADCAST_KINDS:
+            key = BROADCAST_CMD_KEYS[kind]
+            default = BROADCAST_CMD_DEFAULTS[kind]
+            if key not in data:
+                continue
+            val = self._clean_cmd_name(data[key], default)
+            if val != str(self.config.get(key, default)):
+                self.config[key] = val
+                changed = True
+                changed_fields.append(key)
         cmd_names = [
             str(self.config.get("cmd_add_name", DEFAULT_CMD_ADD)),
             str(self.config.get("cmd_remove_name", DEFAULT_CMD_REMOVE)),
@@ -2637,8 +3483,11 @@ class MajsoulMonitorPlugin(Star):
             str(self.config.get("cmd_paipu_name", DEFAULT_CMD_PAIPU)),
             str(self.config.get("cmd_help_name", DEFAULT_CMD_HELP)),
         ]
+        for kind in BROADCAST_KINDS:
+            key = BROADCAST_CMD_KEYS[kind]
+            cmd_names.append(str(self.config.get(key, BROADCAST_CMD_DEFAULTS[kind])))
         if len(set(cmd_names)) != len(cmd_names):
-            return jsonify({"ok": False, "message": "五个指令名不能重复"})
+            return jsonify({"ok": False, "message": "指令名不能重复"})
         if changed:
             try:
                 cfg_path = _plugin_config_path()
@@ -2646,6 +3495,8 @@ class MajsoulMonitorPlugin(Star):
                 existing = {}
                 if cfg_path.exists():
                     existing = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+                # 四个播报指令固定只允许群管理员使用，旧的 admin_only 开关已废弃
+                existing.pop("admin_only", None)
                 existing.update({
                     "enabled": bool(self.config.get("enabled", True)),
                     "poll_interval": int(self.config.get("poll_interval", 120)),
@@ -2655,8 +3506,10 @@ class MajsoulMonitorPlugin(Star):
                     "monitor_valid_unit": str(self.config.get("monitor_valid_unit", MONITOR_VALID_DEFAULT_UNIT)),
                     "monitor_three_player": bool(self.config.get("monitor_three_player", True)),
                     "monitor_east": bool(self.config.get("monitor_east", True)),
+                    "monitor_friend": bool(self.config.get("monitor_friend", False)),
+                    "monitor_contest": bool(self.config.get("monitor_contest", False)),
                     "auto_approve_friends": bool(self.config.get("auto_approve_friends", True)),
-                    "admin_only": bool(self.config.get("admin_only", False)),
+                    "log_retain_days": int(self.config.get(LOG_RETAIN_KEY, LOG_RETAIN_DAYS)),
                     "admins_id": list(self.config.get("admins_id", [])),
                     "api_nodes": list(_API_NODES),
                     "cmd_add_name": str(self.config.get("cmd_add_name", DEFAULT_CMD_ADD)),
@@ -2664,6 +3517,10 @@ class MajsoulMonitorPlugin(Star):
                     "cmd_list_name": str(self.config.get("cmd_list_name", DEFAULT_CMD_LIST)),
                     "cmd_paipu_name": str(self.config.get("cmd_paipu_name", DEFAULT_CMD_PAIPU)),
                     "cmd_help_name": str(self.config.get("cmd_help_name", DEFAULT_CMD_HELP)),
+                    "cmd_three_name": str(self.config.get("cmd_three_name", DEFAULT_CMD_THREE)),
+                    "cmd_east_name": str(self.config.get("cmd_east_name", DEFAULT_CMD_EAST)),
+                    "cmd_friend_name": str(self.config.get("cmd_friend_name", DEFAULT_CMD_FRIEND)),
+                    "cmd_contest_name": str(self.config.get("cmd_contest_name", DEFAULT_CMD_CONTEST)),
                 })
                 cfg_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
                 logger.info(f"[MajsoulMonitor] 配置已保存，变更项: {self._field_labels(changed_fields)}")
@@ -2672,6 +3529,7 @@ class MajsoulMonitorPlugin(Star):
                 logger.error(f"[MajsoulMonitor] 保存配置失败: {e}", exc_info=True)
                 return jsonify({"ok": False, "message": f"保存失败: {e}"})
             # 只有启用/禁用才需要真正起停监控；其余设置一律热更新，不重连、不重新登录
+            purge_note = f"，已删除 {purged} 个超期日志" if purged else ""
             if "enabled" in changed_fields:
                 if self._monitor is not None:
                     stop_reason = (
@@ -2695,11 +3553,11 @@ class MajsoulMonitorPlugin(Star):
                         f"好友轮询间隔 {friend_interval} 秒，非好友轮询间隔 {interval} 秒",
                         "INFO",
                     )
-                    return jsonify({"ok": True, "message": "配置已保存，对局监控已启动"})
+                    return jsonify({"ok": True, "message": f"配置已保存，对局监控已启动{purge_note}"})
                 self._running = False
                 logger.info("[MajsoulMonitor] 对局监控已停止（插件已关闭）")
                 self._log_system("插件已禁用", "所有后台活动已停止", "WARN")
-                return jsonify({"ok": True, "message": "配置已保存，对局监控已停止"})
+                return jsonify({"ok": True, "message": f"配置已保存，对局监控已停止{purge_note}"})
             # 非启用状态的设置：直接写进正在运行的监控对象，下一轮扫描就生效
             applied: List[str] = []
             if self._monitor is not None:
@@ -2718,9 +3576,9 @@ class MajsoulMonitorPlugin(Star):
                     logger.error(f"[MajsoulMonitor] 热更新设置失败: {e}", exc_info=True)
             if applied:
                 logger.info(f"[MajsoulMonitor] 设置已即时生效: {'、'.join(applied)}")
-                return jsonify({"ok": True, "message": "配置已保存，已即时生效"})
-            return jsonify({"ok": True, "message": "已保存"})
-        return jsonify({"ok": True, "message": "无变更"})
+                return jsonify({"ok": True, "message": f"配置已保存，已即时生效{purge_note}"})
+            return jsonify({"ok": True, "message": f"已保存{purge_note}"})
+        return jsonify({"ok": True, "message": f"无变更{purge_note}"})
 
     async def _api_test_node(self):
         """API: 测试单个牌谱屋 API 节点是否可用"""
@@ -2857,27 +3715,40 @@ class MajsoulMonitorPlugin(Star):
             except Exception:
                 pass
 
-    def _cleanup_old_logs(self):
-        """清除超过 LOG_RETAIN_DAYS 天的日志文件"""
+    def _cleanup_old_logs(self, days: Optional[int] = None) -> int:
+        """删除超过保留天数的查询日志，返回删掉的文件数。"""
+        if days is None:
+            days = self._log_retain_days()
         log_dir = self._get_log_dir()
-        cutoff = time.time() - LOG_RETAIN_DAYS * 86400
+        cutoff = time.time() - int(days) * 86400
+        removed = 0
         for f in log_dir.glob("*.log"):
             try:
                 if f.stat().st_mtime >= cutoff:
                     continue
                 f.unlink()
+                removed += 1
                 logger.info(f"[MajsoulMonitor] 已清理过期日志: {f.name}")
             except FileNotFoundError:
                 continue
             except Exception as e:
                 logger.warning(f"[MajsoulMonitor] 清理日志失败 {f.name}: {e}")
+        return removed
+
+    def _log_retain_days(self) -> int:
+        """日志保留天数：以插件设置里的数字为准，缺省或非法时退回默认 30 天。"""
+        try:
+            days = int(self.config.get(LOG_RETAIN_KEY, LOG_RETAIN_DAYS))
+        except (TypeError, ValueError):
+            days = LOG_RETAIN_DAYS
+        return max(1, min(LOG_RETAIN_MAX_DAYS, days))
 
     def _write_changelog(self):
         base = StarTools.get_data_dir("astrbot_plugin_majsoul_matchreport")
         cl_path = base / CHANGELOG_FILE
         entry = (
             f"## v{VERSION} ({datetime.now().strftime('%Y-%m-%d')})\n"
-            "- 首个版本\n\n"
+            f"{CHANGELOG_BODY}\n"
         )
         existing = ""
         if cl_path.exists():
@@ -3165,21 +4036,108 @@ class MajsoulMonitorPlugin(Star):
             pass
         return delta, "", ""
 
+    @staticmethod
+    def _account_display_name(account, robot: bool = False) -> str:
+        """座位上显示的名字：真人用昵称；电脑（好友房里带的 CPU）写成「电脑（角色名）」或「电脑」。
+
+        电脑座位的 account_id 是 1、2 这样的小数字，不能靠 account_id 判断，
+        必须看它是不是来自 head.robots（robot=True）。
+        """
+        try:
+            account_id = int(getattr(account, "account_id", 0) or 0)
+        except (TypeError, ValueError):
+            account_id = 0
+        name = str(getattr(account, "nickname", "") or "").strip()
+        if name in {"?", "？", "-", "null", "None"}:
+            name = ""
+        if not name:
+            # 牌谱里的角色信息是嵌套的 character 对象，只有 charid，没有名字
+            sources = [account, getattr(account, "character", None)]
+            for source in sources:
+                if source is None:
+                    continue
+                for attr in ("character_name", "char_name", "name", "nickname"):
+                    name = str(getattr(source, attr, "") or "").strip()
+                    if name and name not in {"?", "？", "-", "null", "None"}:
+                        break
+                    name = ""
+                if name:
+                    break
+        if robot or account_id <= 0:
+            if name and name.upper() not in {"电脑", "AI", "CPU", "BOT", "机器人", "PLAYER"}:
+                return f"电脑（{name}）"
+            return "电脑"
+        # 真人座位理论上一定有昵称，取不到时别误写成「电脑」
+        return name or "玩家"
+
+    def _seat_names(self, head, accounts=None) -> Dict[int, str]:
+        """按座位号收集显示名：真人看 accounts，电脑看 head.robots（电脑不会出现在 accounts 里）。"""
+        names: Dict[int, str] = {}
+
+        def put(seat: int, account, robot: bool = False) -> None:
+            if seat < 0:
+                return
+            current = names.get(seat)
+            candidate = self._account_display_name(account, robot=robot)
+            # 已经有名字就不再覆盖；但「电脑」没有角色名时，用后面读到的角色名补上
+            if current is None or (current in ("电脑", "玩家") and candidate not in ("电脑", "玩家")):
+                names[seat] = candidate
+
+        source = accounts if accounts is not None else list(getattr(head, "accounts", []) or [])
+        for account in source:
+            put(self._seat_of(account), account)
+        for robot in list(getattr(head, "robots", []) or []):
+            put(self._seat_of(robot), robot, robot=True)
+        for player in list(getattr(getattr(head, "result", None), "players", []) or []):
+            put(self._seat_of(player), player)
+        return names
+
+    @staticmethod
+    def _seat_of(account) -> int:
+        try:
+            return int(getattr(account, "seat", -1))
+        except (TypeError, ValueError):
+            return -1
+
+    def _player_level(self, entry: Dict, sanma: bool, info: Optional[Dict] = None) -> Tuple[int, int]:
+        """取出这个玩家自己记录的段位/分数（三麻看 level3），没有就退回 info 里的。"""
+        info = info or {}
+        entry = entry or {}
+        if sanma:
+            level_id = int(entry.get("level3_id") or 0)
+            level_score = int(entry.get("level3_score") or 0)
+        else:
+            level_id = int(entry.get("level_id") or 0)
+            level_score = int(entry.get("level_score") or 0)
+        if not level_id:
+            level_id = int(info.get("level_id") or 0)
+            level_score = int(info.get("level_score") or 0)
+        return level_id, level_score
+
     def _build_game_message(
         self,
         key: str,
         head,
         info: Dict,
         pt_by_seat: Optional[Dict[int, int]] = None,
+        room_label: str = "",
+        players: Optional[List[Dict]] = None,
     ) -> str:
+        """拼一条对局播报。
+
+        players 是本群参与这局的监控玩家列表（同一群里同桌的会被合并成一条播报）：
+        [{"key","nickname","account_id","seat","entry"}]；只有一个人时按老格式输出。
+        """
         entry = self.monitored.get(key, {})
         nickname = info.get("nickname") or key
         ranked = self._ranked_players(head)
         accounts = list(getattr(head, "accounts", []) or [])
         seat_by_account = {int(a.account_id): int(a.seat) for a in accounts}
-        name_by_seat = {int(a.seat): str(a.nickname or "?") for a in accounts}
+        name_by_seat = self._seat_names(head, accounts)
         target_seat = seat_by_account.get(int(info.get("account_id") or 0), -1)
         pt_by_seat = pt_by_seat or {}
+        # 友人场/比赛场：段位和近期战绩都只统计段位场，这两种房间不显示
+        unranked = bool(room_label)
         # 每个座位这局用的段位（三麻看 level3），用来决定 pt 是整数还是魂天的小数
         sanma = int(
             getattr(getattr(getattr(head, "config", None), "meta", None), "mode_id", 0) or 0
@@ -3189,29 +4147,75 @@ class MajsoulMonitorPlugin(Star):
             level = getattr(acc, "level3" if sanma else "level", None)
             level_by_seat[int(getattr(acc, "seat", -1))] = int(getattr(level, "id", 0) or 0)
 
+        # 本群的监控玩家（同一个群、同一桌的合并成一条播报）
+        seats_info: List[Dict[str, Any]] = []
+        for item in players or []:
+            p_entry = item.get("entry") or self.monitored.get(item.get("key") or "", {}) or {}
+            seat = item.get("seat")
+            seat = int(seat) if seat is not None else -1
+            level_id, level_score = self._player_level(p_entry, sanma, info)
+            level_text = ""
+            if level_id:
+                try:
+                    level_text = level_id_to_display(level_id, level_score)
+                except Exception:
+                    level_text = ""
+            seats_info.append(
+                {
+                    "nickname": item.get("nickname") or p_entry.get("nickname") or nickname,
+                    "level_text": level_text,
+                    "ranks": [] if unranked else recent_ranks_of(p_entry, sanma),
+                    "account_id": int(item.get("account_id") or p_entry.get("account_id") or 0),
+                    "seat": seat,
+                }
+            )
+        if not seats_info:
+            level_text = ""
+            level_id = int(info.get("level_id") or 0)
+            level_score = int(info.get("level_score") or 0)
+            if level_id:
+                try:
+                    level_text = level_id_to_display(level_id, level_score)
+                except Exception:
+                    level_text = ""
+            seats_info.append(
+                {
+                    "nickname": nickname,
+                    "level_text": level_text,
+                    "ranks": [] if unranked else recent_ranks_of(entry, sanma),
+                    "account_id": int(info.get("account_id") or 0),
+                    "seat": target_seat,
+                }
+            )
+        multi = len(seats_info) > 1
+
         lines = ["🀄 【雀魂对局播报】"]
-
-        level_text = ""
-        level_id = int(info.get("level_id") or 0)
-        level_score = int(info.get("level_score") or 0)
-        if level_id:
-            try:
-                level_text = level_id_to_display(level_id, level_score)
-            except Exception:
-                level_text = ""
-        lines.append(f"玩家：{nickname}（{level_text}）" if level_text else f"玩家：{nickname}")
-
-        ranks = recent_ranks_of(entry, sanma)
-        if ranks:
-            lines.append(f"近期战绩：[{''.join(ranks[:10])}]")
+        if multi:
+            # 同桌多个监控玩家：每个玩家一行，近期战绩跟在自己名字后面
+            for si in seats_info:
+                line = f"玩家：{si['nickname']}"
+                if si["level_text"] and not unranked:
+                    line += f"（{si['level_text']}）"
+                if si["ranks"]:
+                    line += f" 近期战绩：[{''.join(si['ranks'][:10])}]"
+                lines.append(line)
+        else:
+            si = seats_info[0]
+            if si["level_text"] and not unranked:
+                lines.append(f"玩家：{si['nickname']}（{si['level_text']}）")
+            else:
+                lines.append(f"玩家：{si['nickname']}")
+            if si["ranks"]:
+                lines.append(f"近期战绩：[{''.join(si['ranks'][:10])}]")
 
         mode_raw = getattr(getattr(getattr(head, "config", None), "meta", None), "mode_id", 0)
         try:
             mode_int = int(mode_raw or 0)
         except (TypeError, ValueError):
             mode_int = 0
-        # MODE_LABELS 同时覆盖四麻/三麻，避免三麻对局被写成「四人对局」
-        room_name = MODE_LABELS.get(mode_int) or FOUR_PLAYER_MODES.get(str(mode_int)) or "对局"
+        # MODE_LABELS 同时覆盖四麻/三麻，避免三麻对局被写成「四人对局」；
+        # 非段位场（友人场/比赛场）直接用房间性质+房间号/比赛场ID 覆盖这里。
+        room_name = room_label or MODE_LABELS.get(mode_int) or FOUR_PLAYER_MODES.get(str(mode_int)) or "对局"
         start_time = int(getattr(head, "start_time", 0) or 0)
         if not start_time:
             start_time = int(time.time())
@@ -3222,16 +4226,90 @@ class MajsoulMonitorPlugin(Star):
         for idx, (player, score) in enumerate(ranked, 1):
             seat = int(getattr(player, "seat", -1))
             label = rank_labels.get(idx, f"{idx}位")
-            line = f"{label} {score} {name_by_seat.get(seat, '?')}"
+            line = f"{label} {score} {name_by_seat.get(seat) or '电脑'}"
             pt_text = _format_pt_delta(pt_by_seat.get(seat, 0), level_by_seat.get(seat, 0))
             if pt_text:
                 line += " " + pt_text
             lines.append(line)
 
         uuid = str(getattr(head, "uuid", "") or "")
-        if uuid and target_seat >= 0:
-            lines.append(f"牌谱：{build_paipu_url(uuid, int(info.get('account_id') or 0), self._server_url())}")
+        if uuid:
+            # 牌谱只发一条（同一局，链接里的 _a 参数只是打开时高亮的座位）
+            link_account = 0
+            for si in seats_info:
+                if int(si["account_id"]) > 0:
+                    link_account = int(si["account_id"])
+                    break
+            if not link_account:
+                link_account = int(info.get("account_id") or 0)
+            if link_account > 0:
+                lines.append(f"牌谱：{build_paipu_url(uuid, link_account, self._server_url())}")
         return "\n".join(lines)
+
+    def _append_event_sections(
+        self, message: str, raw: Optional[Dict], players: List[Dict], head_sanma: bool
+    ) -> str:
+        """把和牌/放铳接到播报后面。
+
+        同桌有多个监控玩家时按人写、并写明谁荣和的谁；只有一个人时保持原来的格式。
+        """
+        if not raw or not players:
+            return message
+        try:
+            if len(players) > 1:
+                seats_map: Dict[int, str] = {}
+                for p in players:
+                    seat_no = p.get("seat")
+                    if seat_no is None:
+                        continue
+                    try:
+                        seat_no = int(seat_no)
+                    except (TypeError, ValueError):
+                        continue
+                    if seat_no >= 0:
+                        seats_map[seat_no] = str(p.get("nickname") or "")
+                wins, deals = _paipu_merged_events(raw, seats_map, head_sanma)
+            else:
+                seat_no = players[0].get("seat")
+                try:
+                    seat_no = int(seat_no) if seat_no is not None else -1
+                except (TypeError, ValueError):
+                    seat_no = -1
+                wins, deals = _paipu_player_events(raw, seat_no, head_sanma)
+        except Exception as exc:  # noqa: BLE001
+            # 新玩法的牌谱结构可能和预期不一样，这里失败只影响和牌/放铳两行，别丢整条播报
+            logger.warning(
+                f"[MajsoulMonitor] 解析和牌 / 放铳失败，跳过这两行：{exc.__class__.__name__}: {exc}",
+                exc_info=True,
+            )
+            return message
+        if wins:
+            message += "\n和牌：" + "；".join(wins)
+        if deals:
+            message += "\n放铳：" + "；".join(deals)
+        return message
+
+    def _paipu_problem_note(self, raw: Optional[Dict]) -> str:
+        """牌谱没取到 / 解析降级时，往查询日志里补一句原因，方便定位问题。"""
+        if raw is None:
+            err = str(getattr(self._monitor, "last_paipu_error", "") or "").strip()
+            return f" | 牌谱未取到：{err}" if err else " | 牌谱未取到（原因未记录）"
+        err = str(raw.get("_parse_error") or "").strip()
+        if err:
+            return f" | 牌谱解析降级（和牌/放铳/役满缺失）：{err}"
+        if not raw.get("log"):
+            diag = raw.get("_diag") or {}
+            if isinstance(diag, dict) and diag:
+                errors = diag.get("parse_errors") or []
+                suffix = f", 动作报错={errors[:2]}" if errors else ""
+                return (
+                    " | 牌谱里没有可解析的动作（和牌/放铳/役满缺失）："
+                    f"version={diag.get('version')}, records={diag.get('records')}, "
+                    f"actions={diag.get('actions')}, 来源={diag.get('source')}, "
+                    f"空动作={diag.get('empty_result')}, 跳过={diag.get('skipped')}{suffix}"
+                )
+            return " | 牌谱里没有可解析的动作（和牌/放铳/役满缺失）"
+        return ""
 
     async def _on_game_finished(self, head, info: Dict):
         account_id = int(info.get("account_id") or 0)
@@ -3251,7 +4329,6 @@ class MajsoulMonitorPlugin(Star):
         if not keys:
             logger.info(f"[MajsoulMonitor] {nickname or account_id} 对局结束，但相关玩家都不在监控列表，忽略")
             return
-        key = keys[0]
 
         seats = {int(a.account_id): int(a.seat) for a in list(getattr(head, "accounts", []) or [])}
         uuid = str(getattr(head, "uuid", "") or "")
@@ -3261,10 +4338,25 @@ class MajsoulMonitorPlugin(Star):
         except (TypeError, ValueError):
             head_mode = 0
         head_sanma = head_mode in THREE_PLAYER_MODE_IDS
+        if head_mode and head_mode not in MODE_LABELS and head_mode not in FOUR_PLAYER_MODES:
+            # 本地还没有这个玩法的房间名（比如新上线的模式），记一条日志方便补表
+            self._write_query_log(
+                nickname or str(account_id),
+                "未知玩法",
+                f"mode_id={head_mode}（本地没有房间名，播报里先显示「对局」）",
+                level="WARN",
+            )
+        # 非段位场（友人场/比赛场）：播报里的房间名换成房间性质
+        contest_uid = str(info.get("contest_uid") or "")
+        room_id = int(info.get("room_id") or 0)
+        unranked = str(info.get("unranked_kind") or "") or unranked_kind(
+            head_mode, contest_uid, room_id
+        )
+        room_label = unranked_label(unranked, contest_uid, room_id) if unranked else ""
         now = int(time.time())
-        group_ids: List[str] = []
-        primary_account = 0
-        primary_rank = 0
+
+        # 逐个玩家更新记录（同桌的多个监控玩家都会更新）
+        players: List[Dict] = []
         for k in keys:
             entry = self.monitored.setdefault(k, {})
             acc = int(entry.get("account_id") or entry.get("player_id") or 0)
@@ -3275,109 +4367,197 @@ class MajsoulMonitorPlugin(Star):
             entry["account_id"] = acc
             entry["last_game_uuid"] = uuid
             entry["last_played_at"] = now
-            if rank:
+            # 近期战绩只记段位场（和雀魂页面上显示的口径一致）
+            if rank and not unranked:
                 append_recent_rank(entry, head_sanma, rank)
             self.monitored[k] = entry
-            if k == key:
-                primary_account = acc
-                primary_rank = rank
-            for gid in entry.get("group_ids", []):
-                if gid not in group_ids and not self._group_expired(entry, gid):
-                    group_ids.append(gid)
+            players.append(
+                {
+                    "key": k,
+                    "entry": entry,
+                    "account_id": acc,
+                    "seat": seat,
+                    "rank": rank,
+                    "nickname": str(entry.get("nickname") or k),
+                }
+            )
         save_monitored(self.monitored)
 
-        msg_info = dict(info)
-        msg_info["account_id"] = primary_account or account_id
-        target_account = int(primary_account or account_id)
-        target_seat = seats.get(target_account, -1)
-        # 本局段位分变化 + 段位升降（查不到在线状态时用牌谱里的数据兜底）
-        pt_delta, rank_direction, new_rank_tag = await self._pt_and_rank_change(
-            head, target_seat, target_account
-        )
+        # 段位分：先取牌谱里每个座位的 grading_score，再逐个玩家补一次真实变化与升降段
         pt_by_seat: Dict[int, int] = {}
         for player in list(getattr(getattr(head, "result", None), "players", []) or []):
             seat_no = int(getattr(player, "seat", -1))
             value = int(getattr(player, "grading_score", 0) or 0)
             if seat_no >= 0 and value:
                 pt_by_seat[seat_no] = value
-        if target_seat >= 0 and pt_delta:
-            pt_by_seat[target_seat] = pt_delta
-        message = self._build_game_message(key, head, msg_info, pt_by_seat)
-        # 补充消息：(文字, 图片路径或 None)
-        extras: List[Tuple[str, Optional[str]]] = []
-        # 和牌/役满详情：复用当前连接拉一次完整牌谱（失败不影响正常播报）
+        for p in players:
+            pt_delta, rank_direction, new_rank_tag = await self._pt_and_rank_change(
+                head, int(p["seat"]), int(p["account_id"])
+            )
+            p["pt_delta"] = pt_delta
+            p["rank_direction"] = rank_direction
+            p["new_rank_tag"] = new_rank_tag
+            if int(p["seat"]) >= 0 and pt_delta:
+                pt_by_seat[int(p["seat"])] = pt_delta
+
+        # 按群分组：同一个群里同桌的玩家合并成一条播报，别的群各发各的
+        group_players: Dict[str, List[Dict]] = {}
+        for p in players:
+            entry = p["entry"]
+            for gid in entry.get("group_ids", []):
+                gid_s = str(gid or "").strip()
+                if not gid_s or p in group_players.get(gid_s, []):
+                    continue
+                if self._group_expired(entry, gid_s):
+                    continue
+                # 该群没开这一类的播报就不发到它那里
+                if unranked in ("friend", "contest"):
+                    if not self._group_wants_unranked(gid_s, unranked):
+                        continue
+                elif not self._group_wants_ranked(gid_s, head_mode):
+                    continue
+                group_players.setdefault(gid_s, []).append(p)
+
+        # 牌谱只拉一次，和牌/放铳/役满都用它（失败不影响正常播报）
+        raw: Optional[Dict] = None
         if uuid and self._monitor is not None:
-            raw = None
             try:
                 raw = await asyncio.wait_for(self._monitor.fetch_paipu_log(uuid), timeout=12)
             except Exception:
                 raw = None
-            if raw:
-                # 三麻没有「满贯也值得播报」的说法：门槛提到倍满（8 番）以上
-                min_han = 8 if head_sanma else 4
-                wins, deals = _paipu_player_events(raw, target_seat, min_han)
-                if wins:
-                    message += "\n和牌：" + "；".join(wins)
-                if deals:
-                    message += "\n放铳：" + "；".join(deals)
-                # 役满：单独再发一条喜报/悲报，牌型用图片发
-                for index, event in enumerate(_paipu_yakuman_events(raw, target_seat)):
-                    if event.get("kind") not in ("win", "deal"):
-                        continue
-                    image_path = self._yakuman_image(uuid, index, event)
-                    if image_path is None:
-                        # 图片生成失败时至少留一条日志，方便定位是牌面还原失败还是没装 Pillow
-                        self._write_query_log(
-                            "、".join(keys),
-                            "役满牌面",
-                            f"uuid={uuid} 第 {index + 1} 个役满没生成图片"
-                            f"（还原到 {_PAIPU_HAND_LAST.get('count', 0)} 张牌），这次只发文字",
-                            level="WARN",
-                        )
-                    extras.append(
-                        (_yakuman_message(nickname, event, with_tiles=image_path is None), image_path)
-                    )
-        # 升段 / 掉段：播报之后再补一条（标明是三麻还是四麻段位）
-        if rank_direction and new_rank_tag:
-            mode_text = "三麻" if head_sanma else "四麻"
-            if rank_direction == "up":
-                extras.append(
-                    (f"喜报！恭喜{nickname}{mode_text}段位升段到{new_rank_tag}！", None)
-                )
-            else:
-                extras.append(
-                    (f"悲报，{nickname}没有守住{mode_text}段位，掉段到{new_rank_tag}了！", None)
-                )
-        # 非好友播报：加好友提示放在最下面（和牌/放铳下面）
+        # 和牌/放铳的播报门槛：四麻 4 番 30 符以上（满贯及以上也都播），三麻跳满以上
         notice = str(info.get("broadcast_notice") or "")
-        if notice:
-            message += "\n" + notice
-        # 距到期不到 3 天：再跟在好友提示后面提醒重置期限
-        expiry_warning = self._expiry_warning(self.monitored.get(key, info), group_ids)
-        if expiry_warning:
-            message += "\n" + expiry_warning
-        label = "、".join(keys)
-        if group_ids:
-            await self._send_notification(message, group_ids)
-            group_text = "、".join(str(g) for g in group_ids)
+
+        if not group_players:
+            # 没有群需要播报：只写一条日志（把所有同桌玩家都写上）
+            primary = players[0]
+            msg_info = dict(info)
+            msg_info["account_id"] = int(primary["account_id"]) or account_id
+            msg_info["nickname"] = primary["nickname"]
+            message = self._build_game_message(
+                primary["key"], head, msg_info, pt_by_seat, room_label=room_label, players=players
+            )
+            message = self._append_event_sections(message, raw, players, head_sanma)
+            label = "、".join(str(p["nickname"]) for p in players)
             self._write_query_log(
-                label, "播报成功",
-                f"群 {group_text} | " + message.replace("\n", " | "),
+                label,
+                "对局结果（未绑定群，仅记录）",
+                message.replace("\n", " | ") + self._paipu_problem_note(raw),
                 level="INFO",
             )
-            logger.info(f"[MajsoulMonitor] 已播报 {label} 的对局 {uuid}（{primary_rank}位）到群 {group_text}")
+            logger.info(
+                f"[MajsoulMonitor] {label} 的对局 {uuid}（{primary['rank']}位）未绑定群，结果已写入查询日志"
+            )
+            return
+
+        for gid_s in sorted(group_players):
+            group_list = group_players[gid_s]
+            primary = group_list[0]
+            msg_info = dict(info)
+            msg_info["account_id"] = int(primary["account_id"]) or account_id
+            msg_info["nickname"] = primary["nickname"]
+            message = self._build_game_message(
+                primary["key"], head, msg_info, pt_by_seat, room_label=room_label, players=group_list
+            )
+            message = self._append_event_sections(message, raw, group_list, head_sanma)
+
+            # 补充消息：(文字, 图片路径或 None)
+            extras: List[Tuple[str, Optional[str]]] = []
+            # 役满：同一桌里有多个监控玩家时，同一条役满只发一次（优先发荣和者的喜报）
+            if raw and uuid:
+                seen_yakuman: set = set()
+                for p in group_list:
+                    try:
+                        yakuman_events = _paipu_yakuman_events(raw, int(p["seat"]))
+                    except Exception as exc:  # noqa: BLE001
+                        # 新玩法的牌谱结构可能让役满识别失败：跳过役满补充消息，主播报照发
+                        logger.warning(
+                            f"[MajsoulMonitor] 识别役满失败（{uuid}）：{exc.__class__.__name__}: {exc}",
+                            exc_info=True,
+                        )
+                        continue
+                    for index, event in enumerate(yakuman_events):
+                        if event.get("kind") not in ("win", "deal"):
+                            continue
+                        if index in seen_yakuman:
+                            continue
+                        if event.get("kind") == "deal" and any(
+                            int(q["seat"]) == int(event.get("winner") or -1) for q in group_list
+                        ):
+                            # 点炮的对象也是群里监控的人：喜报里已经写过，不再单独发悲报
+                            seen_yakuman.add(index)
+                            continue
+                        seen_yakuman.add(index)
+                        image_path = self._yakuman_image(uuid, index, event)
+                        if image_path is None:
+                            # 图片生成失败时至少留一条日志，方便定位是牌面还原失败还是没装 Pillow
+                            self._write_query_log(
+                                "、".join(str(q["nickname"]) for q in group_list),
+                                "役满牌面",
+                                f"uuid={uuid} 第 {index + 1} 个役满没生成图片"
+                                f"（还原到 {_PAIPU_HAND_LAST.get('count', 0)} 张牌），这次只发文字",
+                                level="WARN",
+                            )
+                        extras.append(
+                            (
+                                _yakuman_message(
+                                    str(p["nickname"]), event, with_tiles=image_path is None
+                                ),
+                                image_path,
+                            )
+                        )
+            # 升段 / 掉段：播报之后再补一条（标明是三麻还是四麻段位）
+            mode_text = "三麻" if head_sanma else "四麻"
+            for p in group_list:
+                if not (p.get("rank_direction") and p.get("new_rank_tag")):
+                    continue
+                if p["rank_direction"] == "up":
+                    extras.append(
+                        (
+                            f"喜报！恭喜{p['nickname']}{mode_text}段位升段到{p['new_rank_tag']}！",
+                            None,
+                        )
+                    )
+                else:
+                    extras.append(
+                        (
+                            f"悲报，{p['nickname']}没有守住{mode_text}段位，掉段到{p['new_rank_tag']}了！",
+                            None,
+                        )
+                    )
+            # 非好友播报：加好友提示放在最下面（和牌/放铳下面）
+            if notice:
+                message += "\n" + notice
+            # 距到期不到 3 天：再跟在好友提示后面提醒重置期限
+            expiry_warning = self._expiry_warning(primary["entry"], [gid_s])
+            if expiry_warning:
+                message += "\n" + expiry_warning
+
+            label = "、".join(str(p["nickname"]) for p in group_list)
+            await self._send_notification(message, [gid_s])
+            paipu_note = self._paipu_problem_note(raw)
+            self._write_query_log(
+                label,
+                "播报成功",
+                f"群 {gid_s} | " + message.replace("\n", " | ") + paipu_note,
+                level="INFO",
+            )
+            logger.info(
+                f"[MajsoulMonitor] 已播报 {label} 的对局 {uuid}（{primary['rank']}位）到群 {gid_s}"
+            )
             # 役满 / 段位变动的补充消息
             for extra_text, extra_image in extras:
                 try:
-                    await self._send_notification(extra_text, group_ids)
+                    await self._send_notification(extra_text, [gid_s])
                     self._write_query_log(
                         label, "追加播报", extra_text.replace("\n", " | "), level="INFO"
                     )
                     logger.info(f"[MajsoulMonitor] 已追加播报 {label}：{extra_text.splitlines()[0]}")
                     if extra_image:
-                        sent = await self._send_image(extra_image, group_ids)
+                        sent = await self._send_image(extra_image, [gid_s])
                         self._write_query_log(
-                            label, "追加播报",
+                            label,
+                            "追加播报",
                             f"牌型图片 {extra_image}" if sent else f"牌型图片发送失败 {extra_image}",
                             level="INFO" if sent else "WARN",
                         )
@@ -3385,19 +4565,6 @@ class MajsoulMonitorPlugin(Star):
                 except Exception as exc:
                     logger.warning(f"[MajsoulMonitor] 追加播报失败 {label}: {exc}")
                 await asyncio.sleep(0.3)
-        else:
-            # 没绑定群就只写日志，不发送
-            self._write_query_log(label, "对局结果（未绑定群，仅记录）", message.replace("\n", " | "), level="INFO")
-            for extra_text, extra_image in extras:
-                detail = extra_text.replace("\n", " | ")
-                if extra_image:
-                    detail += f" | 牌型图片 {extra_image}"
-                self._write_query_log(
-                    label, "追加播报（未绑定群，仅记录）", detail, level="INFO"
-                )
-            logger.info(
-                f"[MajsoulMonitor] {label} 的对局 {uuid}（{primary_rank}位）未绑定群，结果已写入查询日志"
-            )
 
     async def _resolve_monitored_player(self, nickname: str, allow_id: bool = True) -> Optional[Dict]:
         """把昵称（或雀魂ID）解析成账号资料，不要求是登录账号的好友。
@@ -3516,6 +4683,16 @@ class MajsoulMonitorPlugin(Star):
 
     def _yakuman_image(self, uuid: str, index: int, event: Dict[str, Any]) -> Optional[str]:
         """把役满和的那手牌拼成图片（缓存在 plugin_data/review/yakuman 下）。"""
+        try:
+            return self._yakuman_image_inner(uuid, index, event)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                f"[MajsoulMonitor] 生成役满牌面失败（{uuid}#{index}）：{exc.__class__.__name__}: {exc}",
+                exc_info=True,
+            )
+            return None
+
+    def _yakuman_image_inner(self, uuid: str, index: int, event: Dict[str, Any]) -> Optional[str]:
         layout = event.get("layout")
         tiles = layout or event.get("tiles") or []
         if not tiles:
@@ -3534,13 +4711,61 @@ class MajsoulMonitorPlugin(Star):
 
     # ── 指令 ──────────────────────────────────────────
 
-    def _is_admin(self, event) -> bool:
-        """权限判断仅以插件配置的 admins_id 为准"""
-        if not self.config.get("admin_only", False):
+    # 群主/管理员身份缓存：群号 -> (读取时间, 群主ID, 管理员ID集合)
+    _GROUP_ROLE_TTL = 300
+
+    @staticmethod
+    def _sender_role_from_raw(event) -> str:
+        """从平台原始消息里取发送者身份（OneBot 的 sender.role：owner/admin/member）。"""
+        raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        if raw is None:
+            return ""
+        sender = raw.get("sender") if isinstance(raw, dict) else getattr(raw, "sender", None)
+        if isinstance(sender, dict):
+            return str(sender.get("role") or "").strip().lower()
+        return str(getattr(sender, "role", "") or "").strip().lower() if sender is not None else ""
+
+    async def _group_owner_admins(self, event, group_id: str):
+        """取群主和管理员：返回 (群主ID, 管理员ID集合)，拿不到时返回 ("", set())。"""
+        cache = getattr(self, "_group_role_cache", None)
+        if cache is None:
+            self._group_role_cache = cache = {}
+        now = time.time()
+        hit = cache.get(group_id)
+        if hit and now - hit[0] < self._GROUP_ROLE_TTL:
+            return hit[1], hit[2]
+        getter = getattr(event, "get_group", None)
+        if not callable(getter):
+            return "", set()
+        try:
+            group = await getter()
+        except Exception as exc:
+            logger.warning(f"[MajsoulMonitor] 读取群 {group_id} 成员身份失败: {exc}")
+            return "", set()
+        if group is None:
+            return "", set()
+        owner = str(getattr(group, "group_owner", "") or "")
+        admins = {str(x) for x in (getattr(group, "group_admins", None) or [])}
+        cache[group_id] = (now, owner, admins)
+        return owner, admins
+
+    async def _is_admin(self, event) -> bool:
+        """播报指令权限：只有本群的群主/管理员（以及白名单里的账号）才能改四个播报开关。
+
+        固定规则，不再受配置开关控制；只作用于 /三麻播报 /东场播报 /友人播报 /比赛播报，
+        新增、删除、列表、牌谱、帮助不受影响。
+        """
+        user_id = str(getattr(event, "get_sender_id", lambda: "")() or "").strip()
+        admins_cfg = [str(a).strip() for a in self.config.get("admins_id", [])]
+        if user_id and user_id in admins_cfg:
             return True
-        user_id = str(event.get_sender_id())
-        admins = [str(a) for a in self.config.get("admins_id", [])]
-        return user_id in admins
+        group_id = str(getattr(event, "get_group_id", lambda: "")() or "").strip()
+        if not group_id or not user_id:
+            return False
+        if self._sender_role_from_raw(event) in ("owner", "admin", "administrator", "creator"):
+            return True
+        owner, admins = await self._group_owner_admins(event, group_id)
+        return bool(user_id and (user_id == owner or user_id in admins))
 
     @staticmethod
     def _clean_cmd_name(raw, default: str) -> str:
@@ -3554,6 +4779,15 @@ class MajsoulMonitorPlugin(Star):
         paipu_name = self._clean_cmd_name(self.config.get("cmd_paipu_name"), DEFAULT_CMD_PAIPU)
         help_name = self._clean_cmd_name(self.config.get("cmd_help_name"), DEFAULT_CMD_HELP)
         return add_name, remove_name, list_name, paipu_name, help_name
+
+    def _broadcast_cmd_names(self) -> Dict[str, str]:
+        """四个「本群播报开关」指令的实际名字：kind -> 指令名。"""
+        names: Dict[str, str] = {}
+        for kind in BROADCAST_KINDS:
+            key = BROADCAST_CMD_KEYS[kind]
+            default = BROADCAST_CMD_DEFAULTS[kind]
+            names[kind] = self._clean_cmd_name(self.config.get(key), default)
+        return names
 
     @staticmethod
     def _match_cmd_arg(text: str, name: str):
@@ -3605,6 +4839,33 @@ class MajsoulMonitorPlugin(Star):
         except Exception:
             logger.debug("[MajsoulMonitor] 记录指令使用失败", exc_info=True)
 
+    @filter.custom_filter(GroupLeaveFilter)
+    async def on_group_leave(self, event: AstrMessageEvent):
+        """机器人被踢出群聊 / 主动退出群聊时，把这个群的监控全部删掉。"""
+        raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        group_id, reason = group_leave_info(raw)
+        if not group_id:
+            return
+        # 这是通知类事件，不该走聊天/LLM 链路
+        try:
+            event.should_call_llm(False)
+        except Exception:
+            pass
+        try:
+            stats = self._remove_group_monitoring(group_id, reason)
+        except Exception as exc:
+            logger.warning(f"[MajsoulMonitor] 退群清理监控失败: {exc}", exc_info=True)
+            event.stop_event()
+            return
+        if not (stats["players"] or stats["removed"] or stats["settings"]):
+            logger.info(f"[MajsoulMonitor] 群 {group_id} {reason}，但这个群本来就没有监控数据")
+        else:
+            logger.info(
+                f"[MajsoulMonitor] 群 {group_id} {reason}，已清理 {stats['players']} 个玩家的监控"
+                f"（{stats['removed']} 个玩家彻底停止监控）"
+            )
+        event.stop_event()
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_custom_command(self, event: AstrMessageEvent):
         """可自定义名字的「新增/删除/列表/帮助」指令。"""
@@ -3613,10 +4874,24 @@ class MajsoulMonitorPlugin(Star):
             return
         # 默认指令名由 @filter.command 的静态处理器负责，这里跳过避免重复回复
         # 最后两个是改名前的旧默认指令名：直接忽略，避免被当成「雀魂播报 + xxx」的参数
-        for default_name in (DEFAULT_CMD_ADD, DEFAULT_CMD_REMOVE, DEFAULT_CMD_LIST, DEFAULT_CMD_HELP, DEFAULT_CMD_PAIPU, "雀魂播报+", "雀魂播报-"):
+        for default_name in (
+            DEFAULT_CMD_ADD, DEFAULT_CMD_REMOVE, DEFAULT_CMD_LIST, DEFAULT_CMD_HELP,
+            DEFAULT_CMD_PAIPU, DEFAULT_CMD_THREE, DEFAULT_CMD_EAST, DEFAULT_CMD_FRIEND,
+            DEFAULT_CMD_CONTEST, "雀魂播报+", "雀魂播报-",
+        ):
             if self._match_cmd_arg(text, default_name) is not None:
                 return
         add_name, remove_name, list_name, paipu_name, help_name = self._command_names()
+        # 四个播报开关指令（各群独立）
+        for kind, cmd_name in self._broadcast_cmd_names().items():
+            if not cmd_name:
+                continue
+            switch_arg = self._match_cmd_arg(text, cmd_name)
+            if switch_arg is None:
+                continue
+            async for result in self._handle_broadcast_switch(event, kind, switch_arg):
+                yield result
+            return
         if self._match_cmd_arg(text, help_name) is not None:
             async for result in self._handle_custom_help(event):
                 yield result
@@ -3641,16 +4916,26 @@ class MajsoulMonitorPlugin(Star):
                 yield result
 
     async def _handle_custom_help(self, event: AstrMessageEvent):
-        """显示本插件的全部指令（/雀魂播报帮助）。"""
+        """显示本插件的全部指令（/雀魂播报帮助）；播报开关都是按群的，私聊不给用。"""
         add_name, remove_name, list_name, paipu_name, help_name = self._command_names()
+        broadcast_names = self._broadcast_cmd_names()
+        three_name = broadcast_names.get("three", DEFAULT_CMD_THREE)
+        east_name = broadcast_names.get("east", DEFAULT_CMD_EAST)
+        friend_name = broadcast_names.get("friend", DEFAULT_CMD_FRIEND)
+        contest_name = broadcast_names.get("contest", DEFAULT_CMD_CONTEST)
+        group_id = str(getattr(event, "get_group_id", lambda: "")() or "").strip()
         self._log_command_usage(event, help_name)
+        if not group_id:
+            yield event.plain_result("⚠️ 请在群聊中使用此指令")
+            return
         try:
             nonfriend_limit = int(self.config.get("nonfriend_daily_limit", 2))
         except (TypeError, ValueError):
             nonfriend_limit = -1
         limit_text = "不限制" if nonfriend_limit < 0 else f"{nonfriend_limit}次"
-        three_text = "开" if bool(self.config.get("monitor_three_player", True)) else "关"
-        east_text = "开" if bool(self.config.get("monitor_east", True)) else "关"
+        # 这里显示的是「本群」的设置，不是插件设置里的全局默认值
+        settings = self._group_settings_of(group_id)
+
         valid_value, valid_unit = self._monitor_validity()
         if valid_unit == "forever":
             valid_text = "不限制"
@@ -3666,15 +4951,62 @@ class MajsoulMonitorPlugin(Star):
             f"/{remove_name} 玩家昵称或雀魂ID：删除监控",
             f"/{list_name}：查看本群监控列表",
             f"/{paipu_name} 牌谱链接或ID：查看牌谱回放",
+            f"/{three_name} 开|关：开启/关闭本群三麻播报",
+            f"/{east_name} 开|关：开启/关闭本群东场播报",
+            f"/{friend_name} 开|关：开启/关闭本群友人场播报",
+            f"/{contest_name} 开|关：开启/关闭本群比赛场播报",
             f"/{help_name}：显示本帮助",
             "",
-            "插件状态：",
+            "本群播报设置：",
             f"非好友播报上限：{limit_text}",
-            f"三麻监控：{three_text}",
-            f"东场监控：{east_text}",
+            f"三麻播报：{'开' if settings.get('three') else '关'}",
+            f"东场播报：{'开' if settings.get('east') else '关'}",
+            f"友人播报：{'开' if settings.get('friend') else '关'}",
+            f"比赛播报：{'开' if settings.get('contest') else '关'}",
             f"监控有效期：{valid_text}",
         ]
         yield event.plain_result("\n".join(lines))
+
+    # 播报开关指令可以接受的参数写法
+    _SWITCH_ON_WORDS = {"开", "开启", "打开", "启用", "on", "open", "1", "true", "yes", "是"}
+    _SWITCH_OFF_WORDS = {"关", "关闭", "关掉", "禁用", "off", "close", "0", "false", "no", "否"}
+
+    async def _handle_broadcast_switch(self, event: AstrMessageEvent, kind: str, arg: str = ""):
+        """处理「/三麻播报 开」这类指令：只改本群的开关。"""
+        if kind not in BROADCAST_KINDS:
+            return
+        label = BROADCAST_LABELS.get(kind, kind)
+        cmd_name = self._broadcast_cmd_names().get(kind, BROADCAST_CMD_DEFAULTS.get(kind, label))
+        self._log_command_usage(event, cmd_name, arg)
+        group_id = str(getattr(event, "get_group_id", lambda: "")() or "").strip()
+        if not group_id:
+            yield event.plain_result(f"⚠️ /{cmd_name} 只能在群聊里使用")
+            return
+        if not await self._is_admin(event):
+            yield event.plain_result("⚠️ 你没有权限修改本群的播报设置（仅限本群管理员/群主）")
+            return
+        text = str(arg or "").strip().lower()
+        if not text:
+            current = self._group_setting(group_id, kind)
+            yield event.plain_result(
+                f"本群{label}：{'开启' if current else '关闭'}\n"
+                f"用法：/{cmd_name} 开 或 /{cmd_name} 关"
+            )
+            return
+        if text in self._SWITCH_ON_WORDS:
+            enabled = True
+        elif text in self._SWITCH_OFF_WORDS:
+            enabled = False
+        else:
+            yield event.plain_result(f"⚠️ 参数只能是「开」或「关」，例如：/{cmd_name} 开")
+            return
+        changed = self._set_group_setting(group_id, kind, enabled)
+        state_text = "开启" if enabled else "关闭"
+        if changed:
+            message = f"✅ 本群{label}已{state_text}"
+        else:
+            message = f"ℹ️ 本群{label}本来就是{state_text}"
+        yield event.plain_result(message)
 
     @staticmethod
     def _event_user_key(event) -> tuple:
@@ -3821,7 +5153,19 @@ class MajsoulMonitorPlugin(Star):
             return False
 
     def _friend_pick_ids(self) -> str:
-        """账号池里正在登录的账号的雀魂ID，拼成「111、222」给「加好友」提示用。"""
+        """加好友提示用的账号：按账号池顺序，只挑好友没加满的前两个在线账号。"""
+        monitor = self._monitor
+        if monitor is not None:
+            picker = getattr(monitor, "friend_pick_ids", None)
+            if callable(picker):
+                try:
+                    picked = picker(2)
+                    picked_ids = [str(x) for x in (picked or []) if str(x or "").strip()]
+                    if picked_ids:
+                        return "、".join(picked_ids)
+                except Exception as exc:
+                    logger.debug(f"[MajsoulMonitor] 挑加好友账号失败: {exc}")
+        # 兜底（没有会话快照时）：老逻辑，列在线账号的雀魂ID
         ids: List[str] = []
 
         def add(account_id: Any) -> None:
@@ -3852,7 +5196,7 @@ class MajsoulMonitorPlugin(Star):
                 pass
         if not ids:
             return ""
-        return "、".join(ids[:5])
+        return "、".join(ids[:2])
 
     def _not_found_message(self, arg: str) -> str:
         """查不到玩家时的提示（让他先加一个在线账号当好友，才能搜到）。"""
@@ -3911,10 +5255,8 @@ class MajsoulMonitorPlugin(Star):
         return f"播报时限延长{value}{unit_text}。"
 
     async def _handle_custom_add(self, event: AstrMessageEvent, arg: str):
+        # 新增监控不受「仅群管理员可用」限制，群成员都能用；那个开关只管四个播报指令
         self._log_command_usage(event, self._command_names()[0], arg)
-        if not self._is_admin(event):
-            yield event.plain_result("⛔ 仅管理员可使用此指令。")
-            return
         group_id = event.get_group_id()
         if not group_id:
             yield event.plain_result("⚠️ 请在群聊中使用此指令。")
@@ -4007,10 +5349,8 @@ class MajsoulMonitorPlugin(Star):
             )
 
     async def _handle_custom_remove(self, event: AstrMessageEvent, arg: str):
+        # 删除监控同样不受「仅群管理员可用」限制
         self._log_command_usage(event, self._command_names()[1], arg)
-        if not self._is_admin(event):
-            yield event.plain_result("⛔ 仅管理员可使用此指令。")
-            return
         group_id = event.get_group_id()
         if not group_id:
             yield event.plain_result("⚠️ 请在群聊中使用此指令。")
@@ -4106,6 +5446,38 @@ class MajsoulMonitorPlugin(Star):
         if not arg:
             arg = self._match_cmd_arg(getattr(event, "message_str", ""), DEFAULT_CMD_PAIPU) or ""
         async for result in self._handle_paipu_command(event, arg):
+            yield result
+
+    @filter.command(DEFAULT_CMD_THREE)
+    async def cmd_three_player_switch(self, event: AstrMessageEvent, arg: str = ""):
+        """开启/关闭本群三麻播报（/三麻播报 开|关）"""
+        if not arg:
+            arg = self._match_cmd_arg(getattr(event, "message_str", ""), DEFAULT_CMD_THREE) or ""
+        async for result in self._handle_broadcast_switch(event, "three", arg):
+            yield result
+
+    @filter.command(DEFAULT_CMD_EAST)
+    async def cmd_east_switch(self, event: AstrMessageEvent, arg: str = ""):
+        """开启/关闭本群东场播报（/东场播报 开|关）"""
+        if not arg:
+            arg = self._match_cmd_arg(getattr(event, "message_str", ""), DEFAULT_CMD_EAST) or ""
+        async for result in self._handle_broadcast_switch(event, "east", arg):
+            yield result
+
+    @filter.command(DEFAULT_CMD_FRIEND)
+    async def cmd_friend_switch(self, event: AstrMessageEvent, arg: str = ""):
+        """开启/关闭本群友人场播报（/友人播报 开|关）"""
+        if not arg:
+            arg = self._match_cmd_arg(getattr(event, "message_str", ""), DEFAULT_CMD_FRIEND) or ""
+        async for result in self._handle_broadcast_switch(event, "friend", arg):
+            yield result
+
+    @filter.command(DEFAULT_CMD_CONTEST)
+    async def cmd_contest_switch(self, event: AstrMessageEvent, arg: str = ""):
+        """开启/关闭本群比赛场播报（/比赛播报 开|关）"""
+        if not arg:
+            arg = self._match_cmd_arg(getattr(event, "message_str", ""), DEFAULT_CMD_CONTEST) or ""
+        async for result in self._handle_broadcast_switch(event, "contest", arg):
             yield result
 
 

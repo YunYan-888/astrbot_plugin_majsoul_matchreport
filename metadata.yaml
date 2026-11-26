@@ -1,7 +1,7 @@
 name: astrbot_plugin_majsoul_matchreport
 display_name: 雀魂战绩播报
 desc: 雀魂战绩实时播报插件，支持网页后台管理。
-version: 1.0.0
+version: 1.1.0
 author: 云上归雁
 repo: https://github.com/YunYan-888/astrbot_plugin_majsoul_matchreport
 support_platforms: aiocqhttp

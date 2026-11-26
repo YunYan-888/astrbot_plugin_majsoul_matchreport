@@ -206,8 +206,17 @@ html.dark .monitor-tab{background:#2a2d31;border-color:#3a3f45;color:#cfd6dd}
 html.dark .monitor-tab:hover{border-color:#60a5fa;color:#93c5fd}
 html.dark .monitor-tab.active{background:#1a56db;border-color:#1a56db;color:#fff}
 .monitor-group-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-.monitor-group-bar select{padding:7px 10px;border:1px solid #d0dae8;border-radius:8px;font-size:13px;min-width:170px;background:#fff}
-html.dark .monitor-group-bar select{background:#2a2d31;border-color:#3a3f45;color:#cfd6dd}
+.monitor-group-bar select{padding:7px 10px;border:1px solid #d0dae8;border-radius:8px;font-size:13px;min-width:170px;background:#fff;color:#333 !important}
+.monitor-group-bar select option{background:#fff !important;color:#333 !important}
+html.dark .monitor-group-bar select{background:#2a2d31;border-color:#3a3f45;color:#cfd6dd !important}
+html.dark .monitor-group-bar select option{background:#2a2d31 !important;color:#cfd6dd !important}
+.monitor-group-switch{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-2px 0 12px}
+.grp-bc-btn{padding:5px 12px;border:1px solid #d0dae8;border-radius:999px;background:#f4f7fb;color:#666;font-size:12px;cursor:pointer;transition:all .15s}
+.grp-bc-btn:hover{border-color:#1a56db;color:#1a56db}
+.grp-bc-btn.on{background:#e6f0ff;border-color:#1a56db;color:#1a56db;font-weight:700}
+.grp-bc-btn:disabled{opacity:.6;cursor:default}
+html.dark .grp-bc-btn{background:#2a2d31;border-color:#3a3f45;color:#aab3bd}
+html.dark .grp-bc-btn.on{background:#1d2b45;border-color:#4b7bd1;color:#8ab4f8}
 /* 右键菜单 */
 .ctx-menu{position:fixed;z-index:10001;display:none;background:#fff;border:1px solid #d0dae8;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.16);padding:4px;min-width:140px}
 html.dark .ctx-menu{background:#2a2d31;border-color:#3a3f45}
@@ -289,8 +298,20 @@ input[type="number"]{-moz-appearance:textfield;appearance:textfield}
 .toggle input:checked+.slider:before{left:21px}
 .poll-settings-wrap{}
 .poll-settings-wrap.disabled{opacity:.45;pointer-events:none;user-select:none}
-.admin-list-wrap{overflow:hidden;max-height:500px;opacity:1;transition:max-height .25s ease,opacity .2s ease,margin .2s ease;margin-top:12px}
-.admin-list-wrap.hidden{max-height:0;opacity:0;margin-top:0;pointer-events:none}
+.cmd-table{border-collapse:collapse;font-size:13px;table-layout:fixed;width:auto;max-width:100%}
+.cmd-table th:nth-child(1),.cmd-table td:nth-child(1){width:104px}
+.cmd-table th:nth-child(2),.cmd-table td:nth-child(2){width:330px}
+.cmd-table th:nth-child(3),.cmd-table td:nth-child(3){width:92px}
+.cmd-table th,.cmd-table td{border:1px solid #e3e9f2;padding:9px 10px;vertical-align:middle;text-align:left}
+.cmd-table th{background:#f6f9fd;color:#3a5a8c;font-size:12px;font-weight:600;white-space:nowrap}
+.cmd-table td.cmd-perm{text-align:center;font-weight:600;color:#3a5a8c;background:#fafcff;white-space:nowrap;letter-spacing:1px;padding:9px 6px}
+.cmd-table td:nth-child(1){white-space:nowrap}
+.cmd-table tbody tr:hover td{background:#f8fbff}
+.cmd-table tbody tr:hover td.cmd-perm{background:#f1f6ff}
+.cmd-input{display:flex;align-items:center;gap:4px;min-width:180px}
+.cmd-input input{flex:1;width:auto;padding:7px 10px;border:1.5px solid #d0dae8;border-radius:7px;font-size:13px;outline:none;font-family:inherit}
+.cmd-input input:focus{border-color:#1a56db}
+.cmd-hint{display:block;margin-top:4px;font-size:12px;color:#8a94a6;line-height:1.4}
 .api-node-list{display:flex;flex-direction:column;gap:8px;width:100%}
 .api-node-item{display:flex;gap:8px;align-items:center;margin-bottom:6px}
 .api-node-label{width:120px;flex-shrink:0;font-size:12px;color:#666;text-align:right;padding-right:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -357,9 +378,19 @@ html.dark .log-row:hover{background:#17253c}
 html.dark .log-row:hover .log-cell,html.dark .log-row:hover .log-cell-msg{color:#cbd5e1 !important}
 html.dark .log-row:hover .log-cell-time{color:#94a3b8 !important}
 html.dark .config-section h3{color:#93c5fd;border-bottom-color:#24344d}
+html.dark .cmd-table th,html.dark .cmd-table td{border-color:#24344d}
+html.dark .cmd-table th{background:#16243a;color:#93c5fd}
+html.dark .cmd-table td.cmd-perm{background:#141f31;color:#93c5fd}
+html.dark .cmd-table tbody tr:hover td{background:#16233a}
+html.dark .cmd-table tbody tr:hover td.cmd-perm{background:#1a2a45}
+html.dark .cmd-input input{background:#0f1a2b;border-color:#2c3f5c;color:#e2e8f0}
+html.dark .cmd-input input:focus{border-color:#60a5fa}
 html.dark .config-row label{color:#cbd5e1}
 html.dark .config-row .hint{color:#94a3b8}
 html.dark input,html.dark select,html.dark textarea{background:#0f1a2b !important;color:#e2e8f0;border-color:#334155 !important}
+/* 下拉选项颜色：深色主题下浏览器默认用系统色，浅色主题下会跟页面文字色撞成一片白 */
+select option{background:#fff !important;color:#333 !important}
+html.dark select option{background:#0f1a2b !important;color:#e2e8f0 !important}
 /* 添加账号表单在深色模式下不要保留浅蓝底色 */
 html.dark #login-form-wrap{background:#0f1a2b !important;border-color:#24344d !important}
 html.dark #login-form-wrap label{color:#cbd5e1 !important}
@@ -782,7 +813,7 @@ function buildGroupViewHtml() {
     return '<option value="' + esc(g).replace(/"/g, '&quot;') + '"' + (g === monitorGroupSel ? ' selected' : '') + '>' + esc(g) + '</option>';
   }).join('');
   var bar = '<div class="monitor-group-bar"><span style="font-size:13px;color:#666">选择群聊：</span><select onchange="onMonitorGroupChange(this)">' + opts + '</select><span style="font-size:12px;color:#999">该群监控 ' + members.length + ' 人</span></div>';
-  var h = bar + '<div class="monitor-scroll"><table class="monitor-table"><thead><tr><th>昵称</th><th>账号ID</th><th>近期战绩</th><th>今日播报</th><th>最后对局</th><th>绑定群号</th><th title="该群的监控时间；点右侧「更新」把该群的监控时间重置为当前时间">监控时间</th><th>操作</th></tr></thead><tbody>';
+  var h = bar + groupBroadcastBarHtml() + '<div class="monitor-scroll"><table class="monitor-table"><thead><tr><th>昵称</th><th>账号ID</th><th>近期战绩</th><th>今日播报</th><th>最后对局</th><th>绑定群号</th><th title="该群的监控时间；点右侧「更新」把该群的监控时间重置为当前时间">监控时间</th><th>操作</th></tr></thead><tbody>';
   members.forEach(function(p){
     var g = (p.groups || []).filter(function(x){ return String(x.group_id) === monitorGroupSel; })[0] || {};
     var nickEsc = esc(p.nickname).replace(/"/g, '&quot;');
@@ -832,6 +863,72 @@ function onMonitorGroupChange(sel) {
   renderMonitor();
 }
 
+// ── 各群播报开关（三麻 / 东场 / 友人 / 比赛）──
+var EP_GROUP_SETTINGS = "api/group_settings";
+var groupSettings = { groups: {}, defaults: {}, labels: {}, kinds: ["three", "east", "friend", "contest"] };
+
+async function loadGroupSettings() {
+  try {
+    await window.AstrBotPluginPage.ready();
+    var res = await window.AstrBotPluginPage.apiGet(EP_GROUP_SETTINGS);
+    var data = (res && res.data) ? res.data : res;
+    if (data && typeof data === "object") {
+      groupSettings.groups = data.groups || {};
+      groupSettings.defaults = data.defaults || {};
+      groupSettings.labels = data.labels || {};
+      groupSettings.kinds = data.kinds || groupSettings.kinds;
+    }
+  } catch(e) {
+    // 拿不到就用插件设置里的默认值显示
+  }
+}
+
+function groupBroadcastBarHtml() {
+  var gid = monitorGroupSel;
+  if (!gid) return "";
+  var kinds = groupSettings.kinds || ["three", "east", "friend", "contest"];
+  var labels = groupSettings.labels || {};
+  var stored = (groupSettings.groups || {})[gid] || null;
+  var defaults = groupSettings.defaults || {};
+  var buttons = kinds.map(function(k){
+    var on = (stored && stored[k] !== undefined && stored[k] !== null) ? !!stored[k] : !!defaults[k];
+    var label = labels[k] || k;
+    return '<button type="button" class="grp-bc-btn' + (on ? ' on' : '') + '" data-kind="' + esc(k) + '"'
+      + ' title="点击切换本群的' + esc(label) + '" onclick="toggleGroupBroadcast(this)">'
+      + esc(label) + '：' + (on ? '开' : '关') + '</button>';
+  }).join('');
+  return '<div class="monitor-group-switch"><span style="font-size:13px;color:#666">本群播报：</span>' + buttons
+    + '<span style="font-size:12px;color:#999">点一下切换；友人场 / 比赛场只播报好友的对局</span></div>';
+}
+
+async function toggleGroupBroadcast(btn) {
+  var gid = monitorGroupSel;
+  if (!gid || !btn) return;
+  var kind = btn.getAttribute("data-kind") || "";
+  if (!kind) return;
+  var next = !btn.classList.contains("on");
+  var label = (groupSettings.labels || {})[kind] || kind;
+  btn.disabled = true;
+  try {
+    await window.AstrBotPluginPage.ready();
+    var resp = await window.AstrBotPluginPage.apiPost(EP_GROUP_SETTINGS, {group_id: gid, kind: kind, enabled: next});
+    if (resp && resp.ok === false) {
+      showToast("❌ " + (resp.message || "保存失败"), false);
+      return;
+    }
+    if (!groupSettings.groups) groupSettings.groups = {};
+    if (!groupSettings.groups[gid]) groupSettings.groups[gid] = {};
+    groupSettings.groups[gid][kind] = next;
+    btn.classList.toggle("on", next);
+    btn.textContent = label + "：" + (next ? "开" : "关");
+    showToast("✅ 本群" + label + "已" + (next ? "开启" : "关闭"), true);
+  } catch(e) {
+    showToast("❌ " + (e.message || String(e)), false);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function renderMonitor() {
   var el = document.getElementById("monitor-content");
   if (!el) return;
@@ -857,6 +954,7 @@ async function loadData(retry) {
     var data = await window.AstrBotPluginPage.apiGet(EP_LIST);
     if (!Array.isArray(data)) data = [];
     monitorData = data;
+    await loadGroupSettings();
     renderMonitor();
   } catch(e) {
     if (retry < 3) {
@@ -1889,7 +1987,48 @@ function onMonitorValidUnitChange() {
   applyMonitorValidState();
   markConfigDirty();
 }
+// 日志保存时间：回车 / 点别处保存；改小时先弹一行「是否确定」，点确定才真的删
+var _savedLogRetain = 30;
+var _pendingLogPurge = false;
+function showLogPurgeRow(show) {
+  var row = document.getElementById("log-purge-row");
+  if (row) row.style.display = show ? "flex" : "none";
+}
+function onLogRetainChange(input) {
+  var raw = parseInt(input.value, 10);
+  if (!raw || raw < 1) {
+    input.value = _savedLogRetain;
+    showLogPurgeRow(false);
+    showToast("日志保存天数至少为 1 天", false);
+    return;
+  }
+  var days = Math.min(raw, 3650);
+  input.value = days;
+  if (days < _savedLogRetain) {
+    // 改小：先不保存，等用户点「确定」
+    showLogPurgeRow(true);
+    return;
+  }
+  showLogPurgeRow(false);
+  _pendingLogPurge = false;
+  markConfigDirty();
+}
+function confirmLogPurge() {
+  var input = document.getElementById("cfg-log-days");
+  if (!input) return;
+  _pendingLogPurge = true;
+  showLogPurgeRow(false);
+  markConfigDirty();
+}
+function cancelLogPurge() {
+  var input = document.getElementById("cfg-log-days");
+  if (input) input.value = _savedLogRetain;
+  _pendingLogPurge = false;
+  showLogPurgeRow(false);
+}
 function renderConfig(cfg) {
+  _savedLogRetain = parseInt(cfg.log_retain_days, 10) || 30;
+  _pendingLogPurge = false;
   var el = document.getElementById("config-content");
   var nodes = cfg.api_nodes || [];
   var nodeHtml = '';
@@ -1940,14 +2079,25 @@ function renderConfig(cfg) {
       '</div>' +
     '</div>' +
     '<div class="config-section">' +
-      '<h3>🎮 监控范围</h3>' +
+      '<h3>🎮 播报范围（所有群聊的初始默认设置）</h3>' +
       '<div class="config-row">' +
-        '<label>三麻监控</label>' +
+        '<label>三麻播报</label>' +
         '<label class="toggle"><input type="checkbox" id="cfg-three-player" ' + (cfg.monitor_three_player !== false ? 'checked' : '') + ' onchange="markConfigDirty()"><span class="slider"></span></label>' +
       '</div>' +
       '<div class="config-row">' +
-        '<label>东场监控</label>' +
+        '<label>东场播报</label>' +
         '<label class="toggle"><input type="checkbox" id="cfg-east" ' + (cfg.monitor_east !== false ? 'checked' : '') + ' onchange="markConfigDirty()"><span class="slider"></span></label>' +
+      '</div>' +
+      '<div class="config-row">' +
+        '<label>友人播报</label>' +
+        '<label class="toggle"><input type="checkbox" id="cfg-friend" ' + (cfg.monitor_friend === true ? 'checked' : '') + ' onchange="markConfigDirty()"><span class="slider"></span></label>' +
+      '</div>' +
+      '<div class="config-row">' +
+        '<label>比赛播报</label>' +
+        '<label class="toggle"><input type="checkbox" id="cfg-contest" ' + (cfg.monitor_contest === true ? 'checked' : '') + ' onchange="markConfigDirty()"><span class="slider"></span></label>' +
+      '</div>' +
+      '<div class="config-row">' +
+        '<span class="hint">这里是所有群聊的初始默认值，各群可以用「/三麻播报」等指令或在监控列表页面单独调整；友人场/比赛场只播报好友的对局。</span>' +
       '</div>' +
     '</div>' +
     '<div class="config-section">' +
@@ -1955,6 +2105,19 @@ function renderConfig(cfg) {
       '<div class="config-row">' +
         '<label>自动同意好友申请</label>' +
         '<label class="toggle"><input type="checkbox" id="cfg-auto-approve-friends" ' + (cfg.auto_approve_friends === true ? 'checked' : '') + ' onchange="markConfigDirty()"><span class="slider"></span></label>' +
+      '</div>' +
+    '</div>' +
+    '<div class="config-section">' +
+      '<h3>📄 日志</h3>' +
+      '<div class="config-row">' +
+        '<label>日志保存时间</label>' +
+        '<input type="number" id="cfg-log-days" value="' + _savedLogRetain + '" min="1" max="3650" style="width:76px" onchange="onLogRetainChange(this)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}">' +
+        '<span class="hint">天</span>' +
+      '</div>' +
+      '<div class="config-row" id="log-purge-row" style="display:none">' +
+        '<span class="hint" style="color:#b45309">即将删除超期日志，是否确定？</span>' +
+        '<button class="btn-node" onclick="confirmLogPurge()">确定</button>' +
+        '<button class="btn-node" onclick="cancelLogPurge()">取消</button>' +
       '</div>' +
     '</div>' +
     '<div class="config-section">' +
@@ -1988,6 +2151,9 @@ async function saveConfigPage() {
   if (_configSaving) { _configSaveAgain = true; return; }
   _configSaving = true;
   var st = document.getElementById("config-save-status");
+  var typedLogDays = parseInt(document.getElementById("cfg-log-days").value) || _savedLogRetain || 30;
+  // 改小但还没点「确定」时不落库，避免把天数改小却没清日志
+  if (typedLogDays < _savedLogRetain && !_pendingLogPurge) typedLogDays = _savedLogRetain;
   var payload = {
     enabled: document.getElementById("cfg-enabled").checked,
     friend_poll_interval: parseInt(document.getElementById("cfg-friend-poll").value) || 30,
@@ -1997,7 +2163,11 @@ async function saveConfigPage() {
     monitor_valid_unit: document.getElementById("cfg-monitor-valid-unit").value,
     monitor_three_player: document.getElementById("cfg-three-player").checked,
     monitor_east: document.getElementById("cfg-east").checked,
+    monitor_friend: document.getElementById("cfg-friend").checked,
+    monitor_contest: document.getElementById("cfg-contest").checked,
     auto_approve_friends: document.getElementById("cfg-auto-approve-friends").checked,
+    log_retain_days: typedLogDays,
+    purge_logs: _pendingLogPurge,
     api_nodes: getApiNodes(),
   };
   try {
@@ -2007,9 +2177,15 @@ async function saveConfigPage() {
       if (resp && resp.ok === false) {
         st.textContent = "❌ " + (resp.message || "保存失败");
         st.className = "save-msg err";
+        // 保存失败：日志天数改回上次成功的值，避免输入框里的数字和实际配置不一致
+        var logInput = document.getElementById("cfg-log-days");
+        if (logInput) logInput.value = _savedLogRetain;
+        _pendingLogPurge = false;
       } else {
         st.textContent = "✅ " + ((resp && resp.message) || "已保存");
         st.className = "save-msg ok";
+        _savedLogRetain = payload.log_retain_days;
+        _pendingLogPurge = false;
       }
     }
     _configDirty = false;
@@ -2025,11 +2201,6 @@ async function saveConfigPage() {
       saveConfigPage();
     }
   }
-}
-function toggleAdminList(checkbox) {
-  var wrap = document.getElementById("admin-list-wrap");
-  if (wrap) wrap.classList.toggle("hidden", !checkbox.checked);
-  markCommandsDirty();
 }
 async function testApiNode(idx) {
   var btn = document.getElementById("test-btn-" + idx);
@@ -2176,59 +2347,52 @@ function renderCommands(cfg) {
   var listName = cfg.cmd_list_name || "雀魂播报列表";
   var paipuName = cfg.cmd_paipu_name || "雀魂牌谱";
   var helpName = cfg.cmd_help_name || "雀魂播报帮助";
+  var threeName = cfg.cmd_three_name || "三麻播报";
+  var eastName = cfg.cmd_east_name || "东场播报";
+  var friendName = cfg.cmd_friend_name || "友人播报";
+  var contestName = cfg.cmd_contest_name || "比赛播报";
+  var rows = [
+    {perm: "所有人可用", span: 5, label: "新增监控", id: "cfg-cmd-add", value: addName, hint: "例如：/" + addName + " 云上归雁"},
+    {label: "删除监控", id: "cfg-cmd-remove", value: removeName, hint: "例如：/" + removeName + " 云上归雁"},
+    {label: "查看本群监控列表", id: "cfg-cmd-list", value: listName, hint: ""},
+    {label: "牌谱回放", id: "cfg-cmd-paipu", value: paipuName, hint: "例如：/" + paipuName + " 牌谱链接或ID"},
+    {label: "帮助", id: "cfg-cmd-help", value: helpName, hint: ""},
+    {perm: "仅群管理员", span: 4, label: "三麻播报", id: "cfg-cmd-three", value: threeName, hint: "各群单独开关，例如：/" + threeName + " 开"},
+    {label: "东场播报", id: "cfg-cmd-east", value: eastName, hint: "各群单独开关，例如：/" + eastName + " 关"},
+    {label: "友人播报", id: "cfg-cmd-friend", value: friendName, hint: "各群单独开关，只播报好友的友人场，例如：/" + friendName + " 开"},
+    {label: "比赛播报", id: "cfg-cmd-contest", value: contestName, hint: "各群单独开关，只播报好友的比赛场，例如：/" + contestName + " 开"}
+  ];
+  var tableHtml = '<table class="cmd-table"><thead><tr>' +
+    '<th style="width:104px">功能</th><th style="width:330px">指令名</th><th style="width:92px">权限</th>' +
+    '</tr></thead><tbody>';
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    tableHtml += '<tr>';
+    tableHtml += '<td class="cmd-name">' + esc(r.label) + '</td>';
+    tableHtml += '<td>' +
+      '<div class="cmd-input">' +
+        '<span style="font-weight:700;color:#1a56db;font-size:15px">/</span>' +
+        '<input type="text" id="' + r.id + '" value="' + esc(r.value) + '" onchange="markCommandsDirty()"' + enterBlur + '>' +
+      '</div>' +
+      (r.hint ? '<span class="cmd-hint">' + esc(r.hint) + '</span>' : '') +
+      '</td>';
+    if (r.perm) {
+      tableHtml += '<td class="cmd-perm" rowspan="' + r.span + '">' + esc(r.perm) + '</td>';
+    }
+    tableHtml += '</tr>';
+  }
+  tableHtml += '</tbody></table>';
+
   var html = '' +
     '<div class="config-section">' +
-      '<h3>🔐 权限控制</h3>' +
-      '<div class="config-row">' +
-        '<label>仅管理员可用</label>' +
-        '<label class="toggle"><input type="checkbox" id="cfg-admin-only" ' + (cfg.admin_only ? 'checked' : '') + ' onchange="toggleAdminList(this)"><span class="slider"></span></label>' +
-        '<span class="hint">开启后，只有下面列表里的账号可以使用插件的所有指令</span>' +
-      '</div>' +
-      '<div class="admin-list-wrap' + (cfg.admin_only ? '' : ' hidden') + '" id="admin-list-wrap">' +
-        '<div class="hint" style="margin-bottom:8px">管理员列表（填 QQ 号）</div>' +
-        '<div id="admin-list">' + adminHtml + '</div>' +
-        '<button class="btn-node btn-node-add" onclick="addAdmin()">＋ 添加管理员</button>' +
-      '</div>' +
+      '<h3>🛠️ 指令名</h3>' +
+      tableHtml +
     '</div>' +
     '<div class="config-section">' +
-      '<h3>🛠️ 指令名</h3>' +
-      '<div class="config-row">' +
-        '<label>新增监控</label>' +
-        '<div style="display:flex;align-items:center;gap:4px;min-width:200px">' +
-          '<span style="font-weight:700;color:#1a56db;font-size:15px">/</span>' +
-          '<input type="text" id="cfg-cmd-add" value="' + esc(addName) + '" onchange="markCommandsDirty()"' + enterBlur + ' style="flex:1;width:auto">' +
-        '</div>' +
-        '<span class="hint">例如：/' + esc(addName) + ' 云上归雁</span>' +
-      '</div>' +
-      '<div class="config-row">' +
-        '<label>删除监控</label>' +
-        '<div style="display:flex;align-items:center;gap:4px;min-width:200px">' +
-          '<span style="font-weight:700;color:#1a56db;font-size:15px">/</span>' +
-          '<input type="text" id="cfg-cmd-remove" value="' + esc(removeName) + '" onchange="markCommandsDirty()"' + enterBlur + ' style="flex:1;width:auto">' +
-        '</div>' +
-        '<span class="hint">例如：/' + esc(removeName) + ' 云上归雁</span>' +
-      '</div>' +
-      '<div class="config-row">' +
-        '<label>查看本群监控列表</label>' +
-        '<div style="display:flex;align-items:center;gap:4px;min-width:200px">' +
-          '<span style="font-weight:700;color:#1a56db;font-size:15px">/</span>' +
-          '<input type="text" id="cfg-cmd-list" value="' + esc(listName) + '" onchange="markCommandsDirty()"' + enterBlur + ' style="flex:1;width:auto">' +
-        '</div>' +
-      '</div>' +
-      '<div class="config-row">' +
-        '<label>牌谱回放</label>' +
-        '<div style="display:flex;align-items:center;gap:4px;min-width:200px">' +
-          '<span style="font-weight:700;color:#1a56db;font-size:15px">/</span>' +
-          '<input type="text" id="cfg-cmd-paipu" value="' + esc(paipuName) + '" onchange="markCommandsDirty()"' + enterBlur + ' style="flex:1;width:auto">' +
-        '</div>' +
-      '</div>' +
-      '<div class="config-row">' +
-        '<label>帮助</label>' +
-        '<div style="display:flex;align-items:center;gap:4px;min-width:200px">' +
-          '<span style="font-weight:700;color:#1a56db;font-size:15px">/</span>' +
-          '<input type="text" id="cfg-cmd-help" value="' + esc(helpName) + '" onchange="markCommandsDirty()"' + enterBlur + ' style="flex:1;width:auto">' +
-        '</div>' +
-      '</div>' +
+      '<h3>🛡️ 额外授权的管理员</h3>' +
+      '<div class="hint" style="margin-bottom:10px">以下管理员不受群管理员限制</div>' +
+      '<div id="admin-list">' + adminHtml + '</div>' +
+      '<button class="btn-node btn-node-add" onclick="addAdmin()">＋ 添加管理员</button>' +
     '</div>' +
     '<div class="config-bar">' +
       '<span class="save-msg" id="commands-save-status"></span>' +
@@ -2251,7 +2415,10 @@ async function saveCommandsPage() {
     cmd_list_name: document.getElementById("cfg-cmd-list").value,
     cmd_paipu_name: document.getElementById("cfg-cmd-paipu").value,
     cmd_help_name: document.getElementById("cfg-cmd-help").value,
-    admin_only: document.getElementById("cfg-admin-only").checked,
+    cmd_three_name: document.getElementById("cfg-cmd-three").value,
+    cmd_east_name: document.getElementById("cfg-cmd-east").value,
+    cmd_friend_name: document.getElementById("cfg-cmd-friend").value,
+    cmd_contest_name: document.getElementById("cfg-cmd-contest").value,
     admins_id: getAdmins(),
   };
   try {
@@ -2512,12 +2679,16 @@ async function refreshFriends(silent) {
         ? '<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600">在线</span>'
         : '<span style="background:#f2f4f7;color:#777;padding:2px 8px;border-radius:4px;font-size:12px">离线</span>';
       var primary = acc.primary ? '<span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:4px;font-size:12px;margin-left:6px">主账号</span>' : '';
+      var fCount = parseInt(acc.count || 0, 10) || 0;
+      var fMax = parseInt(acc.friend_max || 0, 10) || 0;
+      var fFull = fMax > 0 && fCount >= fMax;
+      var fText = fMax > 0 ? ('好友 ' + fCount + '/' + fMax) : ('好友 ' + fCount + ' 个');
       h += '<div style="margin:0 0 18px 0">';
       h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
         '<strong style="font-size:15px">' + esc(acc.nickname || acc.uid) + '</strong>' +
         '<span style="font-family:monospace;color:#666;font-size:12px">' + esc(String(acc.display_uid || acc.uid)) + '</span>' +
         statusBadge + primary +
-        '<span style="color:#888;font-size:12px">好友 ' + (acc.count || 0) + ' 个' +
+        '<span style="color:' + (fFull ? '#c62828' : '#888') + ';font-size:12px' + (fFull ? ';font-weight:600' : '') + '">' + esc(fText) + (fFull ? '（已满）' : '') +
         (acc.friends_at ? '，更新于 ' + new Date(acc.friends_at * 1000).toLocaleTimeString() : '') + '</span>' +
         '</div>';
       var friends = acc.friends || [];

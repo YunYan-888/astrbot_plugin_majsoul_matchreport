@@ -1,3 +1,4 @@
+import logging
 from enum import IntEnum
 from typing import List, Union, Optional, Protocol, Sequence, NamedTuple
 from dataclasses import field, dataclass
@@ -48,8 +49,17 @@ class Tile(NamedTuple):
 
     @classmethod
     def parse(cls, text: str) -> "Tile":
-        assert len(text) == 2
-        return Tile(int(text[0]), TileType[text[1].upper()])
+        text = str(text or "")
+        if len(text) == 2 and text[0].isdigit() and text[1].upper() in TileType.__members__:
+            return Tile(int(text[0]), TileType[text[1].upper()])
+        # 万象修罗等新玩法会带本地解析器不认识的牌面写法（癞子牌），兜底成 1m，
+        # 与其让整局牌谱解析失败，不如让这一张牌显示错。
+        logging.getLogger("majsoul.review.model").debug(
+            "[majsoul-review] 未知牌面写法，按 1m 兜底: %r", text
+        )
+        if text and text[0].isdigit():
+            return Tile(int(text[0]), TileType.M)
+        return Tile(1, TileType.M)
 
     def is_aka(self) -> bool:
         return self.num == 0 and self.type != TileType.Z
@@ -288,7 +298,11 @@ class Yaku:
         elif self.id == 18:
             return RUNES["dabururiichi"][JPNAME]
         else:
-            return cfg["fan"]["fan"]["map_"][str(self.id)]["name_jp"]
+            # 新玩法的役种 id 可能不在本地 cfg 里，缺表时退回原始的「役id」
+            try:
+                return cfg["fan"]["fan"]["map_"][str(self.id)]["name_jp"]
+            except Exception:  # noqa: BLE001
+                return f"役{self.id}"
 
 
 @dataclass

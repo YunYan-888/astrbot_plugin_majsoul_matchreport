@@ -1,16 +1,21 @@
+import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from math import ceil
+from types import SimpleNamespace
 from typing import TypeVar, cast
 
-from ..lib.lq import (
-    HuleInfo,
+logger = logging.getLogger("majsoul.review.parser")
+
+from ..lib.lq import (    HuleInfo,
     RecordAnGangAddGang,
     RecordBaBei,
     RecordChiPengGang,
     RecordDealTile,
     RecordDiscardTile,
     RecordHule,
+    RecordHuleXueZhanEnd,
+    RecordHuleXueZhanMid,
     RecordLiuJu,
     RecordNewRound,
     RecordNoTile,
@@ -43,6 +48,29 @@ from .utils import pad_list, relative_seating
 T = TypeVar("T")
 
 
+def _mode_room_name(mode_id) -> str:
+    """mode_id → 房间名。新玩法的 mode_id 可能不在本地 cfg 表里，缺表时返回兜底名字。"""
+    try:
+        entry = cfg["desktop"]["matchmode"]["map_"].get(str(mode_id))
+    except Exception:  # noqa: BLE001 - 本地表结构异常也不能让牌谱解析失败
+        entry = None
+    name = ""
+    if isinstance(entry, dict):
+        name = str(entry.get("room_name_jp") or entry.get("room_name") or "")
+    return name or f"mode{int(mode_id or 0)}"
+
+
+def _level_full_name(level_id) -> str:
+    """段位 id → 日文段位名。缺表时返回空串（牌谱里那段位就是空的）。"""
+    try:
+        entry = cfg["level_definition"]["level_definition"]["map_"].get(str(level_id))
+    except Exception:  # noqa: BLE001
+        entry = None
+    if isinstance(entry, dict):
+        return str(entry.get("full_name_jp") or entry.get("full_name") or "")
+    return ""
+
+
 @dataclass
 class TenhouModel:
     ver: str = "2.3"
@@ -65,9 +93,18 @@ class MajsoulPaipuParser:
         self.kyoku: Kyoku | None = None
         # 三麻无自摸损模式开关，默认关闭；某些牌谱不会进入设置分支
         self.tsumoloss_off: bool = False
+        # 解析过程中被跳过的动作（新玩法/未知字段），供上层写进牌谱诊断
+        self.parse_errors: list[str] = []
+        # 血战 / 万象修罗：一局里的中途和牌（等 End 动作再落成这一局的结果）
+        self._xuezhan_mid_hules: list = []
+        # 每局和牌者的真实手牌：id(kyoku) -> {seat: {hand, ming, hu_tile, zimo}}
+        self._agari_hands: dict = {}
 
     def handle_game_record(self, record: MjsLog):
         self.tsumoloss_off = False
+        self.parse_errors = []
+        self._xuezhan_mid_hules = []
+        self._agari_hands = {}
         res = TenhouModel()
         ruledisp = ""
         lobby = ""  # usually 0, is the custom lobby number
@@ -87,9 +124,8 @@ class MajsoulPaipuParser:
             ruledisp += RUNES["sanma"][JPNAME]
 
         if record.head.config.meta.mode_id:  # ranked or casual
-            ruledisp += cfg["desktop"]["matchmode"]["map_"][
-                str(record.head.config.meta.mode_id)
-            ]["room_name_jp"]
+            # 新玩法（万象修罗之类）的 mode_id 可能不在本地 cfg 里，缺表时不能让整局牌谱解析失败
+            ruledisp += _mode_room_name(record.head.config.meta.mode_id)
         elif record.head.config.meta.room_id:  # friendly
             # can set room number as lobby number
             lobby = f": {record.head.config.meta.room_id}"
@@ -137,14 +173,16 @@ class MajsoulPaipuParser:
         # ranks
         res.dan = [""] * nplayers
         for e in record.head.accounts:
-            res.dan[e.seat] = cfg["level_definition"]["level_definition"]["map_"][
-                str(e.level.id)
-            ]["full_name_jp"]
+            seat = int(getattr(e, "seat", 0) or 0)
+            if 0 <= seat < nplayers:
+                res.dan[seat] = _level_full_name(getattr(getattr(e, "level", None), "id", 0))
 
         # level score, no real analog to rate
         res.rate = [0] * nplayers
         for e in record.head.accounts:
-            res.rate[e.seat] = e.level.score  # level score, closest thing to rate
+            seat = int(getattr(e, "seat", 0) or 0)
+            if 0 <= seat < nplayers:
+                res.rate[seat] = int(getattr(getattr(e, "level", None), "score", 0) or 0)
 
         # sex
         res.sx = ["C"] * nplayers
@@ -152,7 +190,9 @@ class MajsoulPaipuParser:
         # >names
         res.name = ["AI"] * nplayers
         for e in record.head.accounts:
-            res.name[e.seat] = e.nickname
+            seat = int(getattr(e, "seat", 0) or 0)
+            if 0 <= seat < nplayers:
+                res.name[seat] = str(getattr(e, "nickname", "") or "AI")
 
         # clean up for sanma AI
         if nplayers == 3:
@@ -181,14 +221,34 @@ class MajsoulPaipuParser:
         ]
 
         for item in record.data:
-            self.handle(item)
+            # 单条 action 解析失败（新玩法/未知动作）时跳过，别把整局牌谱丢掉
+            try:
+                self.handle(item)
+            except Exception as exc:  # noqa: BLE001
+                detail = f"{item.name}: {exc.__class__.__name__}: {exc}"
+                if len(self.parse_errors) < 40:
+                    self.parse_errors.append(detail)
+                logger.warning(f"[majsoul-review] 跳过无法解析的牌谱动作 {detail}")
 
         res.log = [kyoku.dump() for kyoku in self.kyokus]
+
+        # 把和牌的真实手牌挂在结算后面（和牌/放铳文本不受影响：遍历是按 delta+agari 成对读的）
+        for index, kyoku in enumerate(self.kyokus):
+            hands = self._agari_hands.get(id(kyoku))
+            if not hands or index >= len(res.log):
+                continue
+            entry = res.log[index]
+            if isinstance(entry, list) and entry and isinstance(entry[-1], list):
+                entry[-1].append({"hais": hands})
 
         return asdict(res)
 
     def handle(self, log: MjsLogItem):
-        match log.name:
+        # 有些记录源（新玩法/比赛场）直接给 ActionXxx 命名，这里统一成 RecordXxx 再分发
+        name = log.name
+        if name.startswith("Action"):
+            name = f"Record{name[6:]}"
+        match name:
             case "RecordNewRound":
                 self._handle_new_round(cast(RecordNewRound, log.data))
             case "RecordDiscardTile":
@@ -207,8 +267,13 @@ class MajsoulPaipuParser:
                 self._handle_no_tile(cast(RecordNoTile, log.data))
             case "RecordHule":
                 self._handle_hu_le(cast(RecordHule, log.data))
+            case "RecordHuleXueZhanMid":
+                self._handle_hu_le_xue_zhan_mid(cast(RecordHuleXueZhanMid, log.data))
+            case "RecordHuleXueZhanEnd":
+                self._handle_hu_le_xue_zhan_end(cast(RecordHuleXueZhanEnd, log.data))
             case _:
-                raise RuntimeError(f"invalid log name: {log.name}")
+                # 万象修罗等新玩法会带本地 proto 里没有的动作，忽略即可，别报错
+                logger.debug(f"[majsoul-review] 忽略未知牌谱动作: {name}")
 
     def _handle_new_round(self, log: RecordNewRound):
         nplayers = len(log.scores)
@@ -459,7 +524,10 @@ class MajsoulPaipuParser:
         if hule.zimo:
             # ko-oya payment for non-dealer tsumo
             # delta  = [...new Array(kyoku.nplayers)].map(()=> (-hb - h.point_zimo_xian));
-            tlround_part = self._tlround((1 / 2) * hule.point_zimo_xian)
+            if getattr(hule, "_exact_points", False):
+                tlround_part = 0
+            else:
+                tlround_part = self._tlround((1 / 2) * hule.point_zimo_xian)
             delta = [-hb - hule.point_zimo_xian - tlround_part] * self.kyoku.nplayers
             if hule.seat == self.kyoku.dealerseat:  # oya tsumo
                 delta[hule.seat] = (
@@ -576,6 +644,167 @@ class MajsoulPaipuParser:
             agari.append(self._parse_hu_le(f, is_head_bump))
             is_head_bump = False  # subsequent rons don't get points
 
+        self._remember_agari_hands(log.hules)
         self.kyoku.result = Agari(agari=agari, uras=ura, round=self.kyoku.round)
         self.kyokus.append(self.kyoku)
         self.kyoku = None
+
+    def _remember_agari_hands(self, hules) -> None:
+        """记下这一局和牌者的真实手牌。
+
+        万象修罗这类玩法会换牌、还带癞子，靠「配牌 + 摸打」还原出来的牌面是错的，
+        所以直接把结算里给的手牌/和了牌存下来，之后拼役满图片时优先用它。
+        """
+        if self.kyoku is None:
+            return
+        hands = {}
+        for hule in hules or []:
+            try:
+                seat = int(getattr(hule, "seat", -1))
+            except (TypeError, ValueError):
+                continue
+            if seat < 0:
+                continue
+            hands[seat] = {
+                "hand": [str(t) for t in (getattr(hule, "hand", None) or [])],
+                "ming": [str(m) for m in (getattr(hule, "ming", None) or [])],
+                "hu_tile": str(getattr(hule, "hu_tile", "") or ""),
+                "zimo": bool(getattr(hule, "zimo", False)),
+            }
+        if hands:
+            self._agari_hands[id(self.kyoku)] = hands
+
+    def _handle_hu_le_xue_zhan_mid(self, log: RecordHuleXueZhanMid):
+        """血战 / 万象修罗：一局中途有人和牌（之后可能继续打），先记下来。
+
+        真正的结算在 `RecordHuleXueZhanEnd` 里，这里只攒数据，否则整局一个 kyoku 都落不下来。
+        """
+        if self.kyoku is None:
+            return
+        # 这一手是荣和的话，放铳的人就是这局最后一张弃牌的人（血战中途和牌只给位置，不给放铳者）
+        ldseat = getattr(self.kyoku, "ldseat", None)
+        try:
+            ldseat = int(ldseat)
+        except (TypeError, ValueError):
+            ldseat = -1
+        for hule in getattr(log, "hules", []) or []:
+            self._xuezhan_mid_hules.append((hule, ldseat))
+
+    @staticmethod
+    def _xue_zhan_base(han: int, fu: int, yakuman: bool) -> int:
+        """番/符 → 基本点（用于血战中途和牌没有点数时的估算）。"""
+        if yakuman or han >= 13:
+            return 8000
+        if han >= 11:
+            return 6000
+        if han >= 8:
+            return 4000
+        if han >= 6:
+            return 3000
+        if han >= 5:
+            return 2000
+        try:
+            base = int(fu) * (2 ** (int(han) + 2))
+        except Exception:  # noqa: BLE001
+            base = 0
+        return min(base, 2000)
+
+    @staticmethod
+    def _xue_zhan_pay(x: int) -> int:
+        """点数向上取整到百位（和雀魂实际结算一致）。"""
+        if x <= 0:
+            return 0
+        return int(100 * ceil(x / 100))
+
+    def _xue_zhan_mid_to_hule(self, hule) -> SimpleNamespace:
+        """把 `HuInfoXueZhanMid` 补成 `_parse_hu_le` 能吃的对象（缺的点数按番/符算）。"""
+        seat = int(getattr(hule, "seat", 0) or 0)
+        han = int(getattr(hule, "count", 0) or 0)
+        fu = int(getattr(hule, "fu", 0) or 0)
+        yakuman = bool(getattr(hule, "yiman", False))
+        tsumo = bool(getattr(hule, "zimo", False))
+        dealer = self.kyoku is not None and seat == self.kyoku.dealerseat
+        base = self._xue_zhan_base(han, fu, yakuman)
+        ron = 0
+        zimo_xian = 0
+        zimo_qin = 0
+        if tsumo:
+            zimo_xian = self._xue_zhan_pay(base * 2 if dealer else base)
+            zimo_qin = self._xue_zhan_pay(base * 2)
+        else:
+            ron = self._xue_zhan_pay(base * (6 if dealer else 4))
+        return SimpleNamespace(
+            seat=seat,
+            zimo=tsumo,
+            qinjia=dealer,
+            yiman=yakuman,
+            count=han,
+            fu=fu,
+            fans=list(getattr(hule, "fans", []) or []),
+            li_doras=None,
+            doras=list(getattr(hule, "doras", []) or []),
+            point_rong=ron,
+            point_zimo_qin=zimo_qin,
+            point_zimo_xian=zimo_xian,
+            _exact_points=True,  # 点数已按番/符算好，别再走 _tlround 的补偿
+        )
+
+    def _handle_hu_le_xue_zhan_end(self, log: RecordHuleXueZhanEnd):
+        """血战 / 万象修罗：一局结束的结算动作。
+
+        优先用 `hules_history`（完整 HuleInfo，带点数）；没有就退回中途攒下的
+        `HuInfoXueZhanMid`，用番/符估点数——至少保证和牌信息能播出来。
+        """
+        if self.kyoku is None:
+            return
+        history = list(getattr(log, "hules_history", []) or [])
+        mids = list(self._xuezhan_mid_hules or [])
+        if not mids:
+            mids = [(hule, -1) for hule in (getattr(log, "hules", []) or [])]
+        self._xuezhan_mid_hules = []
+
+        def mid_ldseat(idx: int) -> int:
+            if idx >= len(mids):
+                return -1
+            item = mids[idx]
+            if isinstance(item, tuple):
+                return int(item[1])
+            return -1
+
+        agari = []
+        ura = []
+        is_head_bump = True
+        if history:
+            for idx, hule in enumerate(history):
+                li = getattr(hule, "li_doras", None)
+                if li is not None and len(ura) < len(li):
+                    ura = [Tile.parse(t) for t in li]
+                agari.append(self._parse_hu_le_ldseat(hule, is_head_bump, mid_ldseat(idx)))
+                is_head_bump = False  # 后续荣和不重复算点棒/本场
+        else:
+            for idx, item in enumerate(mids):
+                hule = item[0] if isinstance(item, tuple) else item
+                agari.append(
+                    self._parse_hu_le_ldseat(
+                        self._xue_zhan_mid_to_hule(hule), is_head_bump, mid_ldseat(idx)
+                    )
+                )
+                is_head_bump = False
+
+        self._remember_agari_hands(
+            history or [item[0] if isinstance(item, tuple) else item for item in mids]
+        )
+        self.kyoku.result = Agari(agari=agari, uras=ura, round=self.kyoku.round)
+        self.kyokus.append(self.kyoku)
+        self.kyoku = None
+
+    def _parse_hu_le_ldseat(self, hule, is_head_bump: bool, ldseat: int):
+        """带着「放铳者」解析和牌（血战的结算记录里没有放铳者，用中途和牌时记下的座位）。"""
+        if self.kyoku is None or ldseat is None or int(ldseat) < 0:
+            return self._parse_hu_le(hule, is_head_bump)
+        old = self.kyoku.ldseat
+        self.kyoku.ldseat = int(ldseat)
+        try:
+            return self._parse_hu_le(hule, is_head_bump)
+        finally:
+            self.kyoku.ldseat = old

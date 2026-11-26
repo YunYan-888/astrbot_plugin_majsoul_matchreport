@@ -120,6 +120,80 @@ async def _fetch_login_client_version_string(
     return f"web-{unity_version}", "unity_index"
 
 
+def _seat_index(obj, default: int = -1) -> int:
+    """安全取 seat。注意 seat=0 也是合法座位，不能用 `x or default`。"""
+    value = getattr(obj, "seat", None)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _degraded_tenhou_log(head, exc: Optional[BaseException] = None) -> Dict:
+    """牌谱解析失败时的兜底格式：只有名次/段位等头部信息，没有逐局 action。
+
+    和牌/放铳/役满这些依赖 action 的内容会缺失，但牌谱文件仍会落到 review/paipu 下，
+    播报名次、段位、牌谱链接都正常。
+    """
+    players = list(getattr(getattr(head, "result", None), "players", []) or [])
+    nplayers = len(players) or 4
+    accounts = list(getattr(head, "accounts", []) or [])
+    names = ["AI"] * nplayers
+    dan = [""] * nplayers
+    rate = [0] * nplayers
+    sx = ["C"] * nplayers
+    for acc in accounts:
+        seat = _seat_index(acc)
+        if 0 <= seat < nplayers:
+            names[seat] = str(getattr(acc, "nickname", "") or "AI")
+            rate[seat] = int(getattr(getattr(acc, "level", None), "score", 0) or 0)
+            dan[seat] = _level_full_name_safe(getattr(getattr(acc, "level", None), "id", 0))
+    sc = [0.0] * (nplayers * 2)
+    for player in players:
+        seat = _seat_index(player)
+        if 0 <= seat < nplayers:
+            sc[2 * seat] = int(getattr(player, "part_point_1", 0) or 0)
+            sc[2 * seat + 1] = int(getattr(player, "total_point", 0) or 0) / 1000
+    meta = getattr(getattr(head, "config", None), "meta", None)
+    mode_id = int(getattr(meta, "mode_id", 0) or 0)
+    rule = {"disp": _mode_room_name_safe(mode_id) if mode_id else "", "aka53": 0, "aka52": 0, "aka51": 0}
+    return {
+        "ref": str(getattr(head, "uuid", "") or ""),
+        "ver": "2.3",
+        "ratingc": f"PF{nplayers}",
+        "rule": rule,
+        "lobby": 0,
+        "dan": dan,
+        "rate": rate,
+        "sx": sx,
+        "name": names,
+        "sc": sc,
+        "title": ["", ""],
+        "log": [],
+        "_parse_error": f"{exc.__class__.__name__}: {exc}" if exc is not None else "",
+    }
+
+
+def _mode_room_name_safe(mode_id) -> str:
+    try:
+        from .tenhou.parser import _mode_room_name
+
+        return _mode_room_name(mode_id)
+    except Exception:  # noqa: BLE001
+        return f"mode{int(mode_id or 0)}"
+
+
+def _level_full_name_safe(level_id) -> str:
+    try:
+        from .tenhou.parser import _level_full_name
+
+        return _level_full_name(level_id)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def process_dict(obj):
     if is_dataclass(obj):
         return {k: process_dict(v) for k, v in asdict(obj).items()}
@@ -166,6 +240,8 @@ class MajsoulConnection:
         self.account_id = 0
         self.nick_name = ""
         self.access_token = ""
+        # 好友上限（服务端 fetchFriendList 返回的 friend_max_count），0 = 还不知道
+        self.friend_max_count = 0
 
     async def connect(self):
         logger.debug(
@@ -212,6 +288,11 @@ class MajsoulConnection:
         res = await self.rpc_call(".lq.Lobby.fetchFriendList", {})
         if getattr(res.error, "code", 0):
             raise ValueError(f"fetchFriendList failed: {_error_summary(res.error)}")
+        # 好友上限跟着列表一起返回，存下来给「好友 22/50」和「加好友提示只列未满的账号」用
+        try:
+            self.friend_max_count = int(getattr(res, "friend_max_count", 0) or 0)
+        except (TypeError, ValueError):
+            self.friend_max_count = 0
         friends = []
         for friend in getattr(res, "friends", []) or []:
             base = getattr(friend, "base", None)
@@ -728,36 +809,112 @@ class MajsoulConnection:
         payload = liblq.GameDetailRecords().parse(detail_records.data)
 
         action_list = []
-        if payload.version < 210715 and len(payload.records) > 0:
-            for value in payload.records:
-                raw = liblq.Wrapper().parse(value)
-                name = raw.name.split(".")[2]
-                parser_cls = getattr(liblq, name, None)
-                if parser_cls is None:
-                    logger.warning(f"[majsoul-review] 未知旧版action类型，已跳过: {name}")
-                    continue
-                msg = parser_cls().parse(raw.data)
-                action_list.append(MjsLogItem(name=name, data=msg))
-        else:
-            for action in payload.actions:
-                if action.result and len(action.result) > 0:
-                    raw = liblq.Wrapper().parse(action.result)
-                    name = raw.name.split(".")[2]
-                    parser_cls = getattr(liblq, name, None)
-                    if parser_cls is None:
-                        logger.warning(f"[majsoul-review] 未知action类型，已跳过: {name}")
-                        continue
-                    msg = parser_cls().parse(raw.data)
-                    action_list.append(MjsLogItem(name=name, data=msg))
+        diag = {
+            "version": int(payload.version),
+            "records": len(payload.records),
+            "actions": len(payload.actions),
+            "empty_result": 0,
+            "skipped": [],
+            "data_len": len(getattr(logs, "data", b"") or b""),
+            "detail_len": len(getattr(detail_records, "data", b"") or b""),
+        }
 
-        tenhou_log = MajsoulPaipuParser().handle_game_record(
-            record=MjsLog(logs.head, action_list)
+        def _wrapper_name(raw) -> str:
+            parts = [p for p in str(getattr(raw, "name", "")).split(".") if p]
+            return parts[-1] if parts else ""
+
+        def _parse_item(name: str, blob: bytes):
+            """解析单条 action；兼容 ActionXxx / RecordXxx 两种命名。"""
+            if not name:
+                diag["skipped"].append("<empty>")
+                return None
+            stem = name[6:] if name.startswith("Action") else name
+            record_name = stem if stem.startswith("Record") else f"Record{stem}"
+            parser_cls = getattr(liblq, record_name, None) or getattr(liblq, name, None)
+            if parser_cls is None:
+                diag["skipped"].append(name)
+                logger.warning(f"[majsoul-review] 未知action类型，已跳过: {name}")
+                return None
+            try:
+                msg = parser_cls().parse(blob)
+            except Exception as exc:  # noqa: BLE001
+                diag["skipped"].append(name)
+                logger.warning(
+                    f"[majsoul-review] action解析失败，已跳过 {name}: {exc.__class__.__name__}: {exc}"
+                )
+                return None
+            item_name = record_name if hasattr(liblq, record_name) else name
+            return MjsLogItem(name=item_name, data=msg)
+
+        # 新记录用 actions（GameAction.result 里再套一层 Wrapper），旧记录用 records；
+        # 万象修罗这类新玩法会出现 version 很新、动作却仍放在 records 里的情况，
+        # 所以按“哪个来源有数据用哪个”来选，避免整局零动作。
+        use_records = len(payload.records) > 0 and (
+            payload.version < 210715 or len(payload.actions) == 0
         )
+        if use_records:
+            diag["source"] = "records"
+            for value in payload.records:
+                try:
+                    raw = liblq.Wrapper().parse(value)
+                except Exception as exc:  # noqa: BLE001
+                    diag["skipped"].append("<wrapper>")
+                    logger.warning(
+                        f"[majsoul-review] 旧版action包装解析失败，已跳过: {exc.__class__.__name__}: {exc}"
+                    )
+                    continue
+                item = _parse_item(_wrapper_name(raw), raw.data)
+                if item is not None:
+                    action_list.append(item)
+        else:
+            diag["source"] = "actions"
+            for action in payload.actions:
+                blob = action.result
+                if not blob:
+                    diag["empty_result"] += 1
+                    continue
+                try:
+                    raw = liblq.Wrapper().parse(blob)
+                except Exception as exc:  # noqa: BLE001
+                    diag["skipped"].append("<wrapper>")
+                    logger.warning(
+                        f"[majsoul-review] action包装解析失败，已跳过: {exc.__class__.__name__}: {exc}"
+                    )
+                    continue
+                item = _parse_item(_wrapper_name(raw), raw.data)
+                if item is not None:
+                    action_list.append(item)
+
+        if not action_list:
+            logger.warning(f"[majsoul-review] 牌谱里没有可解析的动作 {game_id}: {diag}")
+        else:
+            # 记录一下动作类型，方便排查新玩法缺和牌信息时到底来了哪些 action
+            counts: Dict[str, int] = {}
+            for item in action_list:
+                counts[item.name] = counts.get(item.name, 0) + 1
+            diag["names"] = counts
+
+        parser = MajsoulPaipuParser()
+        try:
+            tenhou_log = parser.handle_game_record(record=MjsLog(logs.head, action_list))
+        except Exception as exc:  # noqa: BLE001
+            # 新玩法（万象修罗等）可能有本地解析器不认识的结构：别让整局牌谱丢掉，
+            # 用兜底格式保存，至少保证牌谱文件和名次数据在；和牌详情会缺失。
+            logger.warning(
+                "[majsoul-review] 牌谱解析失败，改用兜底格式保存 "
+                f"{game_id}: {exc.__class__.__name__}: {exc}",
+                exc_info=True,
+            )
+            tenhou_log = _degraded_tenhou_log(logs.head, exc)
 
         tenhou_log["head"] = process_dict(logs.head)
         tenhou_log["game_id"] = game_id
         tenhou_log["log_id"] = log_id
         tenhou_log["target_id"] = target_id
+        # 解析诊断（动作来源/数量/被跳过的类型/被跳过的动作报错），方便排查新玩法的和牌信息缺失
+        if parser.parse_errors:
+            diag["parse_errors"] = parser.parse_errors[:20]
+        tenhou_log["_diag"] = diag
 
         if target_id is not None:
             for acc in logs.head.accounts:

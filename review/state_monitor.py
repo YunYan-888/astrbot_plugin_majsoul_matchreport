@@ -122,6 +122,7 @@ QUERY_SLOW_RETRY_DELAY = 600   # 慢速重试间隔：10 分钟一次，不再�
 MANUAL_RESULT_KEEP = 200       # 手动查询结果暂存上限（页面轮询读取，不额外消耗次数）
 RESULT_WATCH_RETAIN = 2 * 3600 # 页面等结果的有效期：超过 2 小时不再为它保留牌谱
 PAIPU_RETAIN_DAYS = 30         # 本地牌谱缓存（raw json / 役满牌面图）保留天数，超过自动清理
+FRIEND_LIMIT_DEFAULT = 50      # 服务端没返回 friend_max_count 时的好友上限兜底（一般账号是 50；登录成功后都会拿到真实上限）
 
 GameCallback = Callable[[Any, Dict[str, Any]], Awaitable[None]]
 
@@ -285,6 +286,7 @@ class AccountSession:
         "conn",
         "friends",
         "friends_at",
+        "friend_max",
         "friend_error_logged",
         "fail_count",
         "next_try_at",
@@ -299,6 +301,8 @@ class AccountSession:
         # 这个账号的好友列表 {account_id: {nickname, online, game_uuid, mode_id}}
         self.friends: Dict[int, Dict[str, Any]] = {}
         self.friends_at = 0.0
+        # 好友上限（来自 fetchFriendList 的 friend_max_count），0 = 还没拿到
+        self.friend_max = 0
         self.friend_error_logged = False
         self.fail_count = 0
         self.next_try_at = 0.0
@@ -327,6 +331,20 @@ class AccountSession:
     def friend_ids(self) -> set:
         return {int(aid) for aid in self.friends}
 
+    @property
+    def friend_max_or_default(self) -> int:
+        """好友上限；服务端没返回过时按雀魂默认的 50 算（只影响提示，不影响判断）。"""
+        try:
+            value = int(self.friend_max or 0)
+        except (TypeError, ValueError):
+            value = 0
+        return value if value > 0 else FRIEND_LIMIT_DEFAULT
+
+    @property
+    def friend_is_full(self) -> bool:
+        """好友是否已经加满（加满了就不能再拿这个账号去加人）。"""
+        return len(self.friends) >= self.friend_max_or_default
+
 
 class AccountGameMonitor:
     """每个启用的账号各开一条登录连接，轮询监控列表里账号的对局状态，结束后回调。"""
@@ -347,6 +365,7 @@ class AccountGameMonitor:
         log_event: Optional[Callable[..., None]] = None,
         search_urls: Optional[List[str]] = None,
         server_url: str = "",
+        wants_game: Optional[Callable[..., bool]] = None,
     ):
         self.data_dir = Path(data_dir)
         self.account_store_path = Path(account_store_path)
@@ -362,13 +381,11 @@ class AccountGameMonitor:
         self.monitor_three_player = bool(monitor_three_player)
         self.monitor_east = bool(monitor_east)
         self.auto_approve_friends = bool(auto_approve_friends)
-        # 只轮询金之间以上、当前设置允许的场风；关掉三麻/东场后不再请求对应观战列表
-        self._active_live_mode_ids = tuple(
-            mode_id
-            for mode_id in SCAN_MODE_IDS
-            if (self.monitor_three_player or mode_id not in THREE_PLAYER_MODE_IDS)
-            and (self.monitor_east or mode_id not in EAST_MODE_IDS)
-        )
+        # 某个群到底要不要播报这局，由插件按「本群设置 + 监控该玩家的群」判断；
+        # 监控端只负责把命中监控玩家的对局全部扫出来，不再按全局开关裁剪房间。
+        self.wants_game = wants_game
+        # 段位场所有房间固定都轮询（三麻/东场不再依赖插件里的全局开关）
+        self._active_live_mode_ids = tuple(SCAN_MODE_IDS)
         self.log_event = log_event
         self.server_url = str(server_url or "").strip() or URL_BASE
         self.search_urls = [u for u in (search_urls or []) if u] or list(AMAE_SEARCH_URLS)
@@ -400,14 +417,22 @@ class AccountGameMonitor:
         self._paipu_cleanup_day = ""
 
         raw_pending = self._load_pending()
+        # 只保留「还有群要播报」的待查对局（各群开关独立，这里按群判断）
         self._pending: Dict[str, Dict[str, Any]] = {
             uuid: info
             for uuid, info in raw_pending.items()
-            if self._mode_monitored(info.get("mode_id"))
+            if self._targets_want_game(
+                self._pending_targets(info),
+                info.get("mode_id"),
+                str(info.get("contest_uid") or ""),
+                int(info.get("room_id") or 0),
+            )
         }
         if len(self._pending) != len(raw_pending):
-            # 关掉三麻/东场后，把对应场风的待查对局丢弃，不再补播
+            # 对应播报都关掉后，把没人要的待查对局丢弃，不再补播
             self._save_pending()
+        # 「这局没人要」的日志去重：uuid -> 上次记日志时间
+        self._gate_logged: Dict[str, float] = {}
         self._live_snapshot: List[Dict[str, Any]] = []
         self._live_uuids: set[str] = set()
         # 好友列表快照 {account_id: {nickname, online, game_uuid}}：
@@ -540,19 +565,14 @@ class AccountGameMonitor:
             )
             east = self.monitor_east if monitor_east is None else bool(monitor_east)
             if three != self.monitor_three_player:
-                applied.append("已开启三麻监控" if three else "已关闭三麻监控")
+                applied.append("默认三麻播报已开启" if three else "默认三麻播报已关闭")
             if east != self.monitor_east:
-                applied.append("已开启东场监控" if east else "已关闭东场监控")
-            if (three, east) != (self.monitor_three_player, self.monitor_east):
-                self.monitor_three_player = three
-                self.monitor_east = east
-                # 重算要轮询的观战列表（关掉三麻/东场就不再请求对应房间）
-                self._active_live_mode_ids = tuple(
-                    mode_id
-                    for mode_id in SCAN_MODE_IDS
-                    if (three or mode_id not in THREE_PLAYER_MODE_IDS)
-                    and (east or mode_id not in EAST_MODE_IDS)
-                )
+                applied.append("默认东场播报已开启" if east else "默认东场播报已关闭")
+            self.monitor_three_player = three
+            self.monitor_east = east
+            # 段位场所有房间固定都轮询；这两个开关只是各群的初始默认设置，
+            # 不影响扫描范围，是否播报由各群自己的开关决定（见 wants_game）
+            self._active_live_mode_ids = tuple(SCAN_MODE_IDS)
         if auto_approve_friends is not None:
             value = bool(auto_approve_friends)
             if value != self.auto_approve_friends:
@@ -626,12 +646,50 @@ class AccountGameMonitor:
                 ids.append(text)
         return ids
 
+    def _account_pool_order(self) -> List[str]:
+        """账号池里的账号顺序（只看已启用、uid 是数字的），加好友提示按这个顺序挑账号。"""
+        uids: List[str] = []
+        for acc in self._accounts():
+            if not bool(acc.get("enabled", True)):
+                continue
+            uid = str(acc.get("uid") or "").strip()
+            if uid.isdigit() and uid not in uids:
+                uids.append(uid)
+        return uids
+
+    def friend_pick_ids(self, limit: int = 2) -> List[str]:
+        """加好友提示用：按账号池顺序，只挑「好友没加满」的在线账号，最多 limit 个。
+
+        加满的账号再加好友会被服务端拒绝，所以提示里不再列出来。
+        """
+        try:
+            want = max(1, int(limit))
+        except (TypeError, ValueError):
+            want = 2
+        picked: List[str] = []
+        for uid in self._account_pool_order():
+            session = self._sessions.get(uid)
+            if session is None or not session.is_online():
+                continue
+            if session.friend_is_full:
+                continue
+            text = self.display_uid(uid)
+            if text and text not in picked:
+                picked.append(text)
+            if len(picked) >= want:
+                break
+        return picked
+
     def nonfriend_notice(self) -> str:
         """「这个账号还没被任何在线账号加好友」时的提示语（播报末尾、添加成功回复都用它）。"""
         # ID 全部来自账号池：只列已启用的账号，插件里不存任何写死的 ID。
         # 一个启用账号都没有时不会有播报，这里返回空串（不追加提示）；
         # 需要「目前无法播报，请联系管理员在账号池添加账号。」的场景由 main.py 的守卫负责。
-        ids = "、".join(self._enabled_account_ids())
+        picked = self.friend_pick_ids()
+        if not picked:
+            # 好友列表还没刷新过（没有会话快照）时退回已启用账号，最多两个
+            picked = self._enabled_account_ids()[:2]
+        ids = "、".join(picked)
         if not ids:
             return ""
         limit = self.nonfriend_limit()
@@ -643,10 +701,10 @@ class AccountGameMonitor:
         )
 
     def _mode_monitored(self, mode_id: int) -> bool:
-        """该场风当前是否要监控；未知场风（mode_id=0）保持兼容，继续处理。
+        """兜底判断：没有任何群设置信息时，这个场风要不要监控。
 
-        这里只按「三麻/东场」开关过滤，不按轮询列表过滤：铜/银房间虽然不轮询，
-        但好友列表兜底发现的对局仍可能来自这些段位场，照常收下。
+        段位场的三麻/东场已经固定全部轮询，各群按自己的开关决定要不要播报，
+        所以这里只保留给旧数据（没有 wants_game 回调时）用。
         """
         try:
             mode_id = int(mode_id or 0)
@@ -661,6 +719,80 @@ class AccountGameMonitor:
         if mode_id in EAST_MODE_IDS and not self.monitor_east:
             return False
         return True
+
+    @staticmethod
+    def _unranked_kind(mode_id: Any, contest_uid: Any = "", room_id: Any = 0) -> str:
+        """非段位场对局的类型：contest=比赛场，friend=友人场，other=其它非段位场。"""
+        if str(contest_uid or "").strip():
+            return "contest"
+        try:
+            room = int(room_id or 0)
+        except (TypeError, ValueError):
+            room = 0
+        if room > 0:
+            return "friend"
+        try:
+            mode = int(mode_id or 0)
+        except (TypeError, ValueError):
+            mode = 0
+        if mode and mode not in LIVE_MODE_IDS:
+            return "other"
+        return ""
+
+    def _is_unranked(self, mode_id: Any, contest_uid: Any = "", room_id: Any = 0) -> bool:
+        """这一局是不是非段位场（友人场 / 比赛场 / 乱斗等）。"""
+        return bool(self._unranked_kind(mode_id, contest_uid, room_id))
+
+    def _targets_want_game(
+        self,
+        targets: Optional[List[Dict[str, Any]]],
+        mode_id: Any,
+        contest_uid: Any = "",
+        room_id: Any = 0,
+    ) -> List[Dict[str, Any]]:
+        """筛出「有群要播报这局」的监控玩家，返回新的列表。
+
+        插件通过 wants_game 回调给出结果（本群开关 / 该玩家绑定的群），
+        没有回调时退回旧的全局开关判断。
+        """
+        items = [t for t in (targets or []) if isinstance(t, dict)]
+        if not items:
+            return []
+        if not callable(self.wants_game):
+            if self._is_unranked(mode_id, contest_uid, room_id):
+                return []
+            return items if self._mode_monitored(mode_id) else []
+        try:
+            mode = int(mode_id or 0)
+        except (TypeError, ValueError):
+            mode = 0
+        out: List[Dict[str, Any]] = []
+        for target in items:
+            try:
+                allowed = bool(
+                    self.wants_game(target, mode, str(contest_uid or ""), int(room_id or 0))
+                )
+            except Exception as exc:
+                logger.warning(f"[MajsoulMonitor] 判断群播报设置失败，按可播报处理: {exc}")
+                allowed = True
+            if allowed:
+                out.append(target)
+        return out
+
+    def _gate_log_once(self, uuid: str, text: str) -> None:
+        """同一局「没人要播报」的日志只记一次（30 分钟内不重复），避免每轮扫描刷屏。"""
+        uuid = str(uuid or "")
+        if not uuid:
+            return
+        now = time.time()
+        last = self._gate_logged.get(uuid, 0.0)
+        if now - last < 1800:
+            return
+        self._gate_logged[uuid] = now
+        if len(self._gate_logged) > 600:
+            keep = sorted(self._gate_logged.items(), key=lambda kv: kv[1])[-300:]
+            self._gate_logged = dict(keep)
+        self._event("跳过播报", text, "SCAN")
 
     # ── 牌谱权限（每天 05:01 重置）────────────────────────
     def _load_perm_marks(self) -> Dict[str, str]:
@@ -1604,18 +1736,28 @@ class AccountGameMonitor:
         # 好友列表里的对局有时不带 meta（mode_id 拿不到）。这种情况只在既没有 room_id
         # 也没有 contest_uid 时按段位场收下：友人戦一定带 room_id、比赛场一定带 contest_uid
         unknown_ok = bool(allow_unknown_mode and mode_id == 0 and not room_id and not contest_uid)
-        if contest_uid or room_id or (mode_id not in LIVE_MODE_IDS and not unknown_ok):
-            # 比赛场/友人戦/自定义房间：都不是段位场，没有公开牌谱，不监控也不播报
-            if contest_uid:
-                where = f"比赛场（contest={contest_uid}）"
-            elif room_id:
-                where = f"友人戦房间（{room_id}）"
-            else:
-                where = self._mode_label(mode_id)
-            self._event(
-                "非段位场",
-                f"{names} 正在 {where}（不是段位场），这局不监控、不播报",
-                "SCAN",
+        # 友人场/比赛场同样有牌谱可查（好友列表里能拿到这局的 uuid），
+        # 所以它们和段位场一样进待查列表，只是播报里的房间名换成房间性质
+        unranked_kind = self._unranked_kind(mode_id, contest_uid, room_id)
+        if unranked_kind not in ("friend", "contest") and mode_id not in LIVE_MODE_IDS and not unknown_ok:
+            # 既不是段位场，也认不出是友人场还是比赛场（比如自定义房间）：不监控、不播报
+            self._gate_log_once(
+                uuid,
+                f"{names} 正在 {self._mode_label(mode_id)}（不是段位场），这局不监控、不播报",
+            )
+            return False
+        place = (
+            self._unranked_label(unranked_kind, contest_uid, room_id)
+            if unranked_kind
+            else self._mode_label(mode_id)
+        )
+        # 按群开关过滤：监控该玩家的群里一个都没开这类播报，就不监控
+        matched_targets = self._targets_want_game(matched_targets, mode_id, contest_uid, room_id)
+        if not matched_targets:
+            self._gate_log_once(
+                uuid,
+                f"{names} 正在 {place} 对局中，"
+                f"但监控该玩家的群都没开启这类播报，这局不监控、不播报",
             )
             return False
         if not friend:
@@ -1646,6 +1788,11 @@ class AccountGameMonitor:
             "source": via,
             "friend": bool(friend),
             "targets": matched_targets,
+            # 非段位场（友人场/比赛场）的标识，播报时用来显示房间性质和按群开关过滤
+            "contest_uid": str(contest_uid or ""),
+            "room_id": int(room_id or 0),
+            "unranked_kind": unranked_kind,
+            "unranked_label": place if unranked_kind else "",
         }
         names = "、".join(t.get("nickname") or str(t.get("account_id")) for t in matched_targets)
         how = (
@@ -1655,11 +1802,25 @@ class AccountGameMonitor:
         )
         self._event(
             "发现对局",
-            f"{names} 正在 {self._mode_label(mode_id)} 对局中，"
+            f"{names} 正在 {place} 对局中，"
             f"记录观战 uuid={uuid}（来源：{via}；{how}）",
             "INFO",
         )
         return True
+
+    @staticmethod
+    def _unranked_label(kind: str, contest_uid: Any = "", room_id: Any = 0) -> str:
+        """播报里显示的房间性质：友人场（房间号）/ 比赛场（比赛场id）。"""
+        if kind == "contest":
+            text = str(contest_uid or "").strip()
+            return f"比赛场（{text}）" if text else "比赛场"
+        if kind == "friend":
+            try:
+                room = int(room_id or 0)
+            except (TypeError, ValueError):
+                room = 0
+            return f"友人场（{room}）" if room else "友人场"
+        return "非段位场"
 
     async def _poll_once(self) -> None:
         self._last_poll_at = time.time()
@@ -1743,14 +1904,16 @@ class AccountGameMonitor:
                     continue
                 seen_keys.add(key)
                 matched_targets.append({"account_id": pid, "nickname": nickname})
+            contest_uid = str(game.get("contest_uid") or "")
+            room_id = int(game.get("room_id") or 0)
             if self._add_pending(
                 uuid,
                 mode_id,
                 int(game.get("start_time") or 0),
                 matched_targets,
                 friend=self._any_of_friends(matched_targets),
-                contest_uid=str(game.get("contest_uid") or ""),
-                room_id=int(game.get("room_id") or 0),
+                contest_uid=contest_uid,
+                room_id=room_id,
             ):
                 added = True
 
@@ -1770,8 +1933,6 @@ class AccountGameMonitor:
             ):
                 continue
             mode_id = int(state.get("mode_id") or 0)
-            if mode_id and not self._mode_monitored(mode_id):
-                continue
             if self._add_pending(
                 uuid,
                 mode_id,
@@ -1936,6 +2097,10 @@ class AccountGameMonitor:
             }
         session.friends = states
         session.friends_at = time.time()
+        try:
+            session.friend_max = int(getattr(session.conn, "friend_max_count", 0) or 0)
+        except (TypeError, ValueError):
+            session.friend_max = 0
 
     def _friend_union(self) -> Dict[int, Dict[str, Any]]:
         """所有在线账号的好友并集（同一个玩家被多个账号加过时取第一个）。"""
@@ -2463,12 +2628,14 @@ class AccountGameMonitor:
                 continue
 
             mode_id = int(info.get("mode_id") or 0)
-            if mode_id and mode_id not in LIVE_MODE_IDS:
-                # 友人戦/大会/自定义房间不生成可查的公开牌谱，一直问只会一直烧查询次数
+            # 友人场/比赛场也能查到牌谱（好友列表里拿得到这局的 uuid），照常查询；
+            # 只有既不是段位场、又没有房间号/比赛场 ID 的局（乱斗、自定义房间）才放弃
+            has_room = bool(str(info.get("contest_uid") or "").strip() or int(info.get("room_id") or 0))
+            if mode_id and mode_id not in LIVE_MODE_IDS and not has_room:
                 self._event(
                     "跳过查询",
                     f"{info.get('nickname')} uuid={uuid} 这局在 {self._mode_label(mode_id)}，"
-                    f"不是段位场、没有公开牌谱，已从待查列表移除",
+                    f"不是段位场也查不到牌谱，已从待查列表移除",
                     "WARN",
                 )
                 self._pending.pop(uuid, None)
@@ -2553,8 +2720,16 @@ class AccountGameMonitor:
 
             account_info = await self.lookup_account(int(info.get("account_id") or 0))
             if account_info:
-                # 三麻对局用三麻段位（level3）
-                if int(info.get("mode_id") or 0) in THREE_PLAYER_MODE_IDS and account_info.get("level3_id"):
+                # 三麻对局用三麻段位（level3）：牌谱里的 mode 最准，友人场/比赛场的
+                # mode 有时在好友列表里拿不到
+                mode_for_level = int(info.get("mode_id") or 0)
+                try:
+                    head_mode = int(head.config.meta.mode_id)
+                except Exception:
+                    head_mode = 0
+                if head_mode:
+                    mode_for_level = head_mode
+                if mode_for_level in THREE_PLAYER_MODE_IDS and account_info.get("level3_id"):
                     account_info["level_id"] = account_info["level3_id"]
                     account_info["level_score"] = account_info.get("level3_score", 0)
                 info.update({k: v for k, v in account_info.items() if v})
@@ -3351,6 +3526,7 @@ class AccountGameMonitor:
                     "primary": session.uid == self.current_uid,
                     "friends_at": session.friends_at,
                     "count": len(friends),
+                    "friend_max": session.friend_max_or_default,
                     "friends": [
                         {
                             "account_id": int(f.get("account_id") or 0),
