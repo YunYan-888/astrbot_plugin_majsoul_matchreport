@@ -62,58 +62,11 @@ HEADERS = {
     "Accept": "application/json",
 }
 DATA_FILE = "majsoul_matchreport_players.json"
-CHANGELOG_FILE = "CHANGELOG.md"
 LOG_DIR_NAME = "query_logs"
 LOG_RETAIN_DAYS = 30          # 日志保留天数默认值（插件设置里可以改，见 LOG_RETAIN_KEY）
 LOG_RETAIN_KEY = "log_retain_days"
 LOG_RETAIN_MAX_DAYS = 3650
-VERSION = "1.1.0"
-# 本次版本的更新内容（写进数据目录的 CHANGELOG.md，README / 仓库里的 CHANGELOG.md 同源）
-CHANGELOG_BODY = (
-    "- 新增四个播报开关指令：/三麻播报、/东场播报、/友人播报、/比赛播报（参数 开 / 关），"
-    "四个开关按群聊独立保存，插件设置里的开关只作为所有群的初始默认值\n"
-    "- 段位场所有房间固定全部轮询，不再受插件设置里的三麻/东场开关影响；"
-    "发现监控玩家的对局后，再按「监控他的群里有没有开启对应播报」决定是否监控和播报\n"
-    "- 友人场 / 比赛场对局也会监控并播报（只有好友能看到这类对局）："
-    "房间那一行显示「友人场（房间号）」或「比赛场（比赛场ID）」，这两种对局不显示段位和近期战绩\n"
-    "- 「雀魂播报帮助」显示本群的播报开关，并列出四个新指令；私聊使用会提示请在群聊中使用\n"
-    "- 网页：指令设置新增四个播报指令名；监控列表的群聊页在「选择群聊」下面新增本群播报开关；"
-    "插件设置新增友人播报 / 比赛播报默认开关（默认关闭），并把「三麻监控 / 东场监控」改名为"
-    "「三麻播报 / 东场播报」\n"
-    "- 好友列表页显示每个账号的好友数量 / 上限（如 22/50），加满的标红提示\n"
-    "- 加好友提示只列「好友没加满」的前两个在线账号，按账号池顺序挑\n"
-    "- 四个播报指令固定只允许本群的群主 / 管理员（以及额外授权账号）使用，"
-    "插件设置里的「仅群管理员可用」开关已废弃\n"
-    "- 电脑座位显示「电脑（角色名）」，读不到角色名时显示「电脑」；牌谱里名字为 AI / 空的一律显示「电脑」\n"
-    "- 修复监控列表群聊下拉框在浅色模式下文字看不清的问题\n"
-    "- 机器人被踢出群聊 / 主动退出群聊时，自动删掉这个群的监控（该群的播报设置也一起清理）\n"
-    "- 同一个群里有多个监控玩家同桌时，对局结果只播报一条：玩家那一行写上所有人"
-    "（近期战绩跟在各自名字后面），和牌 / 放铳写明谁荣和的谁，两个人互相点炮只在和牌里写一次；"
-    "不同群的播报各自独立\n"
-    "- 指令设置页改成表格（功能 / 指令名 / 权限三列），四个播报指令共用一格「仅群管理员」"
-    "（固定，不能再关），额外授权的管理员填在表格下面；表格按内容宽度显示，不再拉满整页\n"
-    "- 好友上限取服务端返回的真实值（一般账号 50），拿不到时才按 50 兜底\n"
-    "- 「和牌 / 放铳」门槛：四麻播 4 番 30 符以上（4 番 20 符不播），满贯及以上也都播；"
-    "三麻只播跳满以上；牌谱里只写「満貫 / 跳満 / 倍満」不写番数的也能正确识别\n"
-    "- 一局播报只发一条牌谱链接（同桌多人时不再每人一条）\n"
-    "- 兼容万象修罗等新玩法：本地没有的房间名 / 段位 / 役种表、未知牌面写法和未知 action 都不再让"
-    "整局牌谱解析失败；真解析不了时也会把牌谱存下来（和牌详情可能缺失），并在查询日志里写明原因\n"
-    "- 牌谱解析增加诊断：保存的牌谱文件里带 `_diag`（动作来源 / 数量 / 被跳过的动作与报错），"
-    "查询日志里也会写出「牌谱里没有可解析的动作」的具体原因，方便继续排查新玩法\n"
-    "- 支持血战 / 万象修罗的结算动作（RecordHuleXueZhanMid / RecordHuleXueZhanEnd）："
-    "这类玩法以前整局一条和牌都解析不出来，现在能和牌播报、放铳、役满一样显示\n"
-    "- 役满牌面图片改用结算里的真实手牌：万象修罗会换牌、还有癞子，靠「配牌 + 摸打」还原出来的"
-    "牌面是错的（张数都可能对不上），现在解析时把和牌者的手牌一起存进牌谱，拼图优先用它\n"
-    "- 役满牌面图片支持癞子（白搭）与副露：癞子用 `resources/麻将牌面/bd.png` 这张专用牌面"
-    "（缺这张图时退回牌背加红框）并固定排最左边；排布按「手牌｜和了的那张｜副露」，"
-    "副露列在右边、被叫的那张横置，杠也是 4 张成组；结算手牌张数会按「14 + 杠数」核对\n"
-    "- 役满牌面图片张数核对不过时不再发图（避免发出牌数不对的图），原始 hand / ming 写进查询日志\n"
-    "- 插件设置新增「日志保存时间」（默认 30 天，可改 1~3650 天）：查询日志按这个天数自动清理；"
-    "把天数改小时会先弹「即将删除超期日志，是否确定？」，点确定立刻删掉已超期的日志并提示删了几个，"
-    "点取消输入框退回原来的天数\n"
-    "- 审核合规：牌谱解析模块的日志改用 `from astrbot.api import logger`（不再自建 logging 日志器）；"
-    "下载游戏资源时不再往当前工作目录写 `.cache/` 缓存文件\n"
-)
+VERSION = "1.1.2"
 # 群指令默认名（可在「指令设置」页修改）
 DEFAULT_CMD_ADD = "雀魂播报"
 DEFAULT_CMD_REMOVE = "删除播报"
@@ -2131,7 +2084,6 @@ class MajsoulMonitorPlugin(Star):
         if cfg_nodes and isinstance(cfg_nodes, list):
             _API_NODES.clear()
             _API_NODES.extend([str(n).strip().rstrip("/") for n in cfg_nodes if str(n).strip()])
-        self._write_changelog()
         # Cancel existing poll task to prevent duplicates on reload
         if self._task and not self._task.done():
             self._task.cancel()
@@ -3745,21 +3697,6 @@ class MajsoulMonitorPlugin(Star):
             days = LOG_RETAIN_DAYS
         return max(1, min(LOG_RETAIN_MAX_DAYS, days))
 
-    def _write_changelog(self):
-        base = StarTools.get_data_dir("astrbot_plugin_majsoul_matchreport")
-        cl_path = base / CHANGELOG_FILE
-        entry = (
-            f"## v{VERSION} ({datetime.now().strftime('%Y-%m-%d')})\n"
-            f"{CHANGELOG_BODY}\n"
-        )
-        existing = ""
-        if cl_path.exists():
-            existing = cl_path.read_text(encoding="utf-8-sig")
-        if f"## v{VERSION}" in existing:
-            return
-        cl_path.write_text(entry + existing, encoding="utf-8")
-        logger.info(f"[雀魂播报] 更新日志已写入 v{VERSION}")
-
     async def terminate(self):
         self._running = False
         if self._task:
@@ -3972,15 +3909,19 @@ class MajsoulMonitorPlugin(Star):
             if int(getattr(player, "seat", -1)) == seat:
                 return idx
         return 0
-    async def _pt_and_rank_change(self, head, seat: int, account_id: int) -> Tuple[int, str, str]:
+    async def _pt_and_rank_change(
+        self, head, seat: int, account_id: int
+    ) -> Tuple[int, str, str, Optional[Dict]]:
         """算出这局的段位分变化和段位升降。
 
-        返回 (pt 变化, "up"/"down"/"", 新段位名)：
+        返回 (pt 变化, "up"/"down"/"", 新段位名, 查询到的当前段位资料)：
         - 牌谱里同一段位时，用「当前分数 - 牌谱分数」最准（魂天本来就是 ×100 的定点数）；
-        - 查不到当前状态（账号离线）就退回牌谱里的 grading_score，并按分数阈值推算段位。
+        - 查不到当前状态（账号离线）就退回牌谱里的 grading_score，并按分数阈值推算段位；
+        - 第 4 项是 lookup_account 查到的原始资料（查不到就是 None），调用方可以拿它
+          刷新监控列表里存的段位，避免播报里一直显示加监控时的旧段位。
         """
         if seat < 0:
-            return 0, "", ""
+            return 0, "", "", None
         mode_id = int(
             getattr(getattr(getattr(head, "config", None), "meta", None), "mode_id", 0) or 0
         )
@@ -3998,16 +3939,23 @@ class MajsoulMonitorPlugin(Star):
                 delta = int(getattr(player, "grading_score", 0) or 0)
                 break
         if before_id <= 0:
-            return delta, "", ""
+            return delta, "", "", None
+        fresh: Optional[Dict] = None
         after_id, after_score = 0, 0
         if account_id > 0 and self._monitor is not None:
             try:
                 data = await asyncio.wait_for(
                     self._monitor.lookup_account(int(account_id)), timeout=8
                 )
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                # 查不到就退回牌谱里的 grading_score，但不能静默
+                logger.debug(
+                    f"[MajsoulMonitor] 查询 {account_id} 的当前段位失败（用牌谱值兜底）："
+                    f"{exc.__class__.__name__}: {exc}"
+                )
                 data = None
             if data:
+                fresh = data
                 if sanma:
                     after_id = int(data.get("level3_id") or 0)
                     after_score = int(data.get("level3_score") or 0)
@@ -4026,17 +3974,17 @@ class MajsoulMonitorPlugin(Star):
                     tag = MajsoulLevel(after_id).get_tag()
                 except Exception:
                     tag = ""
-            return delta, direction, tag
+            return delta, direction, tag, fresh
         # 账号暂时查不到：用「牌谱分数 + 本局 pt」走一遍段位阈值，只用来判断升/掉段
         try:
             level = MajsoulLevel(before_id)
             after_level = level.get_adjusted_level(before_score + delta)
             direction = _rank_direction(before_id, int(after_level.id))
             if direction:
-                return delta, direction, after_level.get_tag()
+                return delta, direction, after_level.get_tag(), fresh
         except Exception:
             pass
-        return delta, "", ""
+        return delta, "", "", fresh
 
     @staticmethod
     def _account_display_name(account, robot: bool = False) -> str:
@@ -4145,9 +4093,12 @@ class MajsoulMonitorPlugin(Star):
             getattr(getattr(getattr(head, "config", None), "meta", None), "mode_id", 0) or 0
         ) in THREE_PLAYER_MODE_IDS
         level_by_seat: Dict[int, int] = {}
+        score_by_seat: Dict[int, int] = {}
         for acc in accounts:
             level = getattr(acc, "level3" if sanma else "level", None)
-            level_by_seat[int(getattr(acc, "seat", -1))] = int(getattr(level, "id", 0) or 0)
+            seat_no = int(getattr(acc, "seat", -1))
+            level_by_seat[seat_no] = int(getattr(level, "id", 0) or 0)
+            score_by_seat[seat_no] = int(getattr(level, "score", 0) or 0)
 
         # 本群的监控玩家（同一个群、同一桌的合并成一条播报）
         seats_info: List[Dict[str, Any]] = []
@@ -4156,6 +4107,17 @@ class MajsoulMonitorPlugin(Star):
             seat = item.get("seat")
             seat = int(seat) if seat is not None else -1
             level_id, level_score = self._player_level(p_entry, sanma, info)
+            # 段位优先用「刚查到的赛后段位」，其次是牌谱头部（这局开始时的段位）；
+            # 都没有才退回监控列表里存的（可能是加监控时的旧值）
+            given_level = item.get("level")
+            if given_level:
+                level_id = int(given_level[0] or 0)
+                level_score = int(given_level[1] or 0)
+            else:
+                head_level_id = level_by_seat.get(seat, 0)
+                if head_level_id:
+                    level_id = head_level_id
+                    level_score = score_by_seat.get(seat, 0) or level_score
             level_text = ""
             if level_id:
                 try:
@@ -4393,7 +4355,7 @@ class MajsoulMonitorPlugin(Star):
             if seat_no >= 0 and value:
                 pt_by_seat[seat_no] = value
         for p in players:
-            pt_delta, rank_direction, new_rank_tag = await self._pt_and_rank_change(
+            pt_delta, rank_direction, new_rank_tag, fresh = await self._pt_and_rank_change(
                 head, int(p["seat"]), int(p["account_id"])
             )
             p["pt_delta"] = pt_delta
@@ -4401,6 +4363,30 @@ class MajsoulMonitorPlugin(Star):
             p["new_rank_tag"] = new_rank_tag
             if int(p["seat"]) >= 0 and pt_delta:
                 pt_by_seat[int(p["seat"])] = pt_delta
+            # 段位/段位分以刚查到的为准：否则监控列表和后续播报会一直用加监控时存下的旧值
+            level_for_display = None
+            if fresh:
+                entry = p["entry"]
+                new_level_id = int(fresh.get("level_id") or 0)
+                new_level3_id = int(fresh.get("level3_id") or 0)
+                if new_level_id:
+                    entry["level_id"] = new_level_id
+                    entry["level_score"] = int(fresh.get("level_score") or 0)
+                if new_level3_id:
+                    entry["level3_id"] = new_level3_id
+                    entry["level3_score"] = int(fresh.get("level3_score") or 0)
+                if fresh.get("nickname"):
+                    entry["nickname"] = str(fresh.get("nickname"))
+                self.monitored[p["key"]] = entry
+                fresh_id = new_level3_id if head_sanma else new_level_id
+                fresh_score = int(
+                    fresh.get("level3_score" if head_sanma else "level_score") or 0
+                )
+                if fresh_id:
+                    level_for_display = (fresh_id, fresh_score)
+            p["level"] = level_for_display
+        if any(p.get("entry", {}).get("level_id") for p in players):
+            save_monitored(self.monitored)
 
         # 按群分组：同一个群里同桌的玩家合并成一条播报，别的群各发各的
         group_players: Dict[str, List[Dict]] = {}
