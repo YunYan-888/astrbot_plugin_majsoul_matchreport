@@ -116,9 +116,9 @@ LIVE_ABSENT_GRACE = 600        # 好友列表查不到（非好友/好友被删�
 MANUAL_ABSENT_GRACE = 120      # 手动查询对局（用户正在等结果）用更短的兜底等待
 PENDING_MAX_PLAYING = 3 * 3600 # 待查对局最多算「还在打」3 小时，防止状态一直不刷新卡死
 PENDING_TIMEOUT_SECONDS = 2 * 3600  # 开局算起 2 小时还没拉到牌谱就放弃（不再继续花查询次数）
-QUERY_FAST_RETRY_DELAYS = (20, 45, 90, 180)   # 好友分支牌谱没拉到时的重试间隔（逐次拉长）
-QUERY_FAST_RETRY_MAX = 5       # 快速重试次数上限，超过后按 QUERY_SLOW_RETRY_DELAY 慢速重试
-QUERY_SLOW_RETRY_DELAY = 600   # 慢速重试间隔：10 分钟一次，不再每轮都花查询次数
+QUERY_NO_RECORD_MAX = 2        # code=1203（牌谱不存在）在好友分支连续这么多次就放弃：
+                               # 好友房中途退出、掉线重开这类局根本不会生成牌谱；
+                               # 非好友分支只能靠轮询猜结束，1203 也可能只是还没打完，不放弃
 MANUAL_RESULT_KEEP = 200       # 手动查询结果暂存上限（页面轮询读取，不额外消耗次数）
 RESULT_WATCH_RETAIN = 2 * 3600 # 页面等结果的有效期：超过 2 小时不再为它保留牌谱
 PAIPU_RETAIN_DAYS = 30         # 本地牌谱缓存（raw json / 役满牌面图）保留天数，超过自动清理
@@ -227,12 +227,12 @@ class NoAccountAvailable(RuntimeError):
 
 
 class DailyQuota:
-    """按账号记录每天查询过的牌谱条数（默认 200 条/账号/天）。"""
+    """按账号记录每天查询过的牌谱条数（只做统计，不再限制每天条数）。"""
 
     def __init__(self, path: Path, limit: int = DEFAULT_DAILY_LIMIT):
         self.path = path
         self.limit = max(1, int(limit))
-        # 某个账号当天额度刚好用完时回调一次（uid），供监控写日志用
+        # 保留字段兼容旧代码；现在不做额度限制，也不会触发
         self.on_exhausted: Optional[Callable[[str], None]] = None
 
     def _load(self) -> Dict[str, Dict[str, int]]:
@@ -256,24 +256,47 @@ class DailyQuota:
     def remaining(self, uid: str) -> int:
         return max(0, self.limit - self.used(uid))
 
-    def consume(self, uid: str, count: int = 1) -> None:
+    def consume(self, uid: str, count: int = 1, key: str = "") -> None:
+        """记一次牌谱查询。
+
+        key 是「这一局」的标识（牌谱 uuid）。同一局会先 fetch_game_record 拿头部、
+        再 fetch_logs 拿完整牌谱，两次都算的话统计会翻倍，所以同一个 key 当天只计一次。
+        """
         data = self._load()
-        day = data.setdefault(_today(), {})
-        before = int(day.get(str(uid), 0))
-        day[str(uid)] = before + count
+        day_key = _today()
+        today = data.setdefault(day_key, {})
+        uid = str(uid)
+        key = str(key or "")
+        if key:
+            seen = data.setdefault("_seen", {}).setdefault(day_key, {})
+            per_uid = seen.setdefault(uid, {})
+            if per_uid.get(key):
+                return
+            per_uid[key] = 1
+        before = int(today.get(uid, 0))
+        today[uid] = before + count
         self._prune(data)
         self._save(data)
         # 刚好把当天额度用光时通知一次；之后同一天继续调用不会重复触发
         if self.on_exhausted is not None and before < self.limit <= before + count:
             try:
-                self.on_exhausted(str(uid))
+                self.on_exhausted(uid)
             except Exception:
                 pass
 
     def _prune(self, data: Dict[str, Dict[str, int]]) -> None:
+        today = _today()
         for key in list(data.keys()):
-            if key != _today() and key < _today():
+            if key.startswith("_"):
+                continue
+            if key != today and key < today:
                 data.pop(key, None)
+        # 清理过期的「已计过的牌谱」
+        seen = data.get("_seen")
+        if isinstance(seen, dict):
+            for day in list(seen.keys()):
+                if day != today:
+                    seen.pop(day, None)
 
 
 class AccountSession:
@@ -391,6 +414,14 @@ class AccountGameMonitor:
         self.search_urls = [u for u in (search_urls or []) if u] or list(AMAE_SEARCH_URLS)
         self.quota = DailyQuota(self.data_dir / "monitor_quota.json", daily_limit)
         self.quota.on_exhausted = self._on_quota_exhausted
+        # 比赛场：内部 unique_id(contest_uid) → 玩家看到的比赛场 ID，缓存起来免得每局都查
+        self._contest_ids: Dict[str, str] = {}
+        self._contest_names: Dict[str, str] = {}
+        self._contest_map_at = 0.0
+        # 每个「还没查到的内部比赛场 uid」上次翻列表的时间，避免反复翻
+        self._contest_try: Dict[str, float] = {}
+        self.contest_map_path = self.data_dir / "contest_ids.json"
+        self._load_contest_map()
         self.seen_path = self.data_dir / "monitor_seen.json"
         self.pending_path = self.data_dir / "monitor_pending.json"
         self.broadcast_path = self.data_dir / "monitor_broadcast.json"
@@ -465,6 +496,9 @@ class AccountGameMonitor:
         # account_id -> (同意它的账号 uid, 这个占位的过期时间)
         self._apply_claims: Dict[int, tuple] = {}
         self.last_record_code = 0
+        # 真正执行这次牌谱查询的账号 uid（不一定是 current_uid：查牌谱会按今日用量挑账号），
+        # 540 无权限时要标记「实际用的那个」，否则会一直标记主账号、而真正没权限的账号继续被挑中。
+        self.last_record_uid = ""
         self._reconnect_attempts = 0
         # 牌谱权限：记录当天没有权限的账号，次日 05:01 自动重置
         self.perm_path = self.data_dir / "monitor_paipu_perms.json"
@@ -779,7 +813,7 @@ class AccountGameMonitor:
                 out.append(target)
         return out
 
-    def _gate_log_once(self, uuid: str, text: str) -> None:
+    def _gate_log_once(self, uuid: str, text: str, status: str = "跳过播报", level: str = "SCAN") -> None:
         """同一局「没人要播报」的日志只记一次（30 分钟内不重复），避免每轮扫描刷屏。"""
         uuid = str(uuid or "")
         if not uuid:
@@ -792,7 +826,7 @@ class AccountGameMonitor:
         if len(self._gate_logged) > 600:
             keep = sorted(self._gate_logged.items(), key=lambda kv: kv[1])[-300:]
             self._gate_logged = dict(keep)
-        self._event("跳过播报", text, "SCAN")
+        self._event(status, text, level)
 
     # ── 牌谱权限（每天 05:01 重置）────────────────────────
     def _load_perm_marks(self) -> Dict[str, str]:
@@ -818,6 +852,11 @@ class AccountGameMonitor:
     def _perm_is_ok(self, uid: str) -> bool:
         uid = str(uid or "")
         return self._bad_paipu.get(uid) != self._perm_day
+
+    def has_permitted_account(self) -> bool:
+        """当前有没有「今天还能看牌谱」的在线账号（用于决定 540 之后是换个账号马上重试，还是等到次日）。"""
+        self._refresh_perm_marks()
+        return any(self._perm_is_ok(s.uid) for s in self.online_sessions())
 
     def _refresh_perm_marks(self) -> bool:
         """过了每天 05:01 就清空所有「无牌谱权限」标记，重新从第一个账号开始尝试。"""
@@ -865,7 +904,7 @@ class AccountGameMonitor:
         if log and cleared:
             self._event(
                 "牌谱权限恢复",
-                f"账号 {self.display_uid(uid)} {reason}，牌谱权限重置为「有」",
+                f"账号 {self._account_label(uid)} {reason}，牌谱权限重置为「有」",
                 "INFO",
             )
         return cleared
@@ -1145,14 +1184,14 @@ class AccountGameMonitor:
                     raise
                 except asyncio.TimeoutError:
                     self.last_error = f"扫描超时（>{POLL_TIMEOUT}s）"
-                    self._event("连接断开", f"uid={self.display_uid(self.current_uid)} {self.last_error}", "WARN")
+                    self._event("连接断开", f"账号 {self._account_label(self.current_uid)} {self.last_error}", "WARN")
                     await self._close_conn()
                     self._reconnect_attempts += 1
                     self._reconnecting = True
                     delay = min(60, backoff)
                     self._event(
                         "准备重连",
-                        f"uid={self.display_uid(self.current_uid)} {delay}s 后重新登录（第 {self._reconnect_attempts} 次）",
+                        f"账号 {self._account_label(self.current_uid)} {delay}s 后重新登录（第 {self._reconnect_attempts} 次）",
                         "WARN",
                     )
                     await asyncio.sleep(delay)
@@ -1160,14 +1199,14 @@ class AccountGameMonitor:
                     continue
                 except Exception as exc:
                     self.last_error = f"{exc.__class__.__name__}: {exc}"
-                    self._event("连接断开", f"uid={self.display_uid(self.current_uid)} {self.last_error}", "WARN")
+                    self._event("连接断开", f"账号 {self._account_label(self.current_uid)} {self.last_error}", "WARN")
                     await self._close_conn()
                     self._reconnect_attempts += 1
                     self._reconnecting = True
                     delay = min(60, backoff)
                     self._event(
                         "准备重连",
-                        f"uid={self.display_uid(self.current_uid)} {delay}s 后重新登录（第 {self._reconnect_attempts} 次）",
+                        f"账号 {self._account_label(self.current_uid)} {delay}s 后重新登录（第 {self._reconnect_attempts} 次）",
                         "WARN",
                     )
                     await asyncio.sleep(delay)
@@ -1577,6 +1616,23 @@ class AccountGameMonitor:
                 handled_any = True
         return handled_any
 
+    @staticmethod
+    def _is_friend_full_error(exc: BaseException) -> bool:
+        """同意好友申请失败是不是「好友已满」（服务端 code=1407）。"""
+        text = str(exc or "")
+        return "code=1407" in text or "好友已满" in text or "好友数量已达上限" in text
+
+    def _session_friends_full(self, session: "AccountSession", extra: int = 0) -> bool:
+        """这个账号的好友是不是已经满了（以服务端返回的上限为准，拿不到按 50）。
+
+        extra 是「这一轮刚同意、但好友列表快照还没刷新」的人数。
+        """
+        try:
+            limit = session.friend_max_or_default
+            return len(session.friends) + int(extra or 0) >= limit
+        except Exception:
+            return False
+
     async def _process_session_friend_applies(self, session: "AccountSession") -> bool:
         conn = session.conn
         if conn is None:
@@ -1611,6 +1667,36 @@ class AccountGameMonitor:
             return labels.get(int(account_id)) or str(account_id)
 
         handled: list[int] = []
+        accepted = 0
+        # 好友满了就不要再去「同意」：服务端会报 code=1407，反复重试还会挡住别的账号
+        full = self._session_friends_full(session)
+        if full:
+            self._event(
+                "好友申请",
+                f"{session.label} 好友已满（{len(session.friends)}/{session.friend_max_or_default}），"
+                f"本次的 {len(targets)} 条申请会直接拒绝",
+                "INFO",
+            )
+
+        async def _reject_full(target_id: int, level: str) -> None:
+            """好友已满时拒绝这条申请，避免它一直挂在申请列表里。"""
+            try:
+                await asyncio.wait_for(conn.handle_friend_apply(target_id, 2), timeout=8)
+                self._event(
+                    "好友申请",
+                    f"{session.label} 好友已满（{len(session.friends)}/{session.friend_max_or_default}），"
+                    f"已自动拒绝 {_name(target_id)} 的申请",
+                    level,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._event(
+                    "好友申请",
+                    f"{session.label} 好友已满，拒绝 {_name(target_id)} 的申请失败：{exc}",
+                    "WARN",
+                )
+
         for target_id in targets:
             owner = self.friend_owner(target_id)
             if owner is not None and owner.uid != session.uid:
@@ -1635,21 +1721,35 @@ class AccountGameMonitor:
                 # 由上面的「已经是 X 的好友」分支正式拒绝，避免两个账号都把人加上
                 self._event(
                     "好友申请",
-                    f"{_name(target_id)} 的申请已经由 {self.display_uid(claim[0])} 同意，"
+                    f"{_name(target_id)} 的申请已经由 {self._account_label(claim[0])} 同意，"
                     f"{session.label} 本轮不再重复同意",
                     "SCAN",
                 )
                 continue
+            if full:
+                await _reject_full(target_id, "INFO")
+                continue
             try:
                 await asyncio.wait_for(conn.handle_friend_apply(target_id, 1), timeout=8)
                 handled.append(target_id)
+                accepted += 1
                 self._apply_claims[target_id] = (
                     session.uid,
                     time.time() + APPLY_CLAIM_SECONDS,
                 )
+                # 刚好加满：后面几条申请不再尝试同意，直接拒绝
+                if self._session_friends_full(session, accepted):
+                    full = True
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                if self._is_friend_full_error(exc):
+                    # 内存里的好友数可能还没刷新到满，服务端已经拒了：
+                    # 以「当前好友数」作为上限，本轮后面都走自动拒绝，等下次拉好友列表再纠正
+                    session.friend_max = max(1, len(session.friends) + accepted)
+                    full = True
+                    await _reject_full(target_id, "WARN")
+                    continue
                 self._event(
                     "好友申请", f"{session.label} 同意 {_name(target_id)} 的申请失败：{exc}", "WARN"
                 )
@@ -1747,7 +1847,7 @@ class AccountGameMonitor:
             )
             return False
         place = (
-            self._unranked_label(unranked_kind, contest_uid, room_id)
+            self._unranked_label(unranked_kind, self.contest_code(contest_uid), room_id)
             if unranked_kind
             else self._mode_label(mode_id)
         )
@@ -1767,12 +1867,13 @@ class AccountGameMonitor:
                 if not aid or self.is_friend_of_any(aid):
                     continue
                 if not self._nonfriend_can_monitor(aid):
-                    self._event(
-                        "非好友限播",
+                    self._gate_log_once(
+                        uuid,
                         f"{target.get('nickname') or aid}（{self._display_id(aid)}）今天已播报 "
                         f"{self.broadcast_count_today(aid)} 次，还有 "
                         f"{self._inflight_count(aid)} 局在等播报，达到上限 "
                         f"{self.nonfriend_limit()} 次，这局不再监控（加好友后可继续播报）",
+                        "非好友限播",
                         "WARN",
                     )
                     return False
@@ -1790,6 +1891,8 @@ class AccountGameMonitor:
             "targets": matched_targets,
             # 非段位场（友人场/比赛场）的标识，播报时用来显示房间性质和按群开关过滤
             "contest_uid": str(contest_uid or ""),
+            # 比赛场显示用的 ID（内部 uid 能查到真正的比赛场 ID 就用它）
+            "contest_code": self.contest_code(contest_uid) if contest_uid else "",
             "room_id": int(room_id or 0),
             "unranked_kind": unranked_kind,
             "unranked_label": place if unranked_kind else "",
@@ -1861,6 +1964,15 @@ class AccountGameMonitor:
 
         # 固定每 30s 扫一遍所有房间的当前对局，命中监控玩家就记下 uuid
         games = await self._fetch_all_live_games()
+        # 碰到还没映射过的比赛场，顺手刷新一次「内部 uid → 比赛场 ID」（半小时一次）
+        unknown_contest = ""
+        for g in games:
+            uid = str(g.get("contest_uid") or "").strip()
+            if uid and uid not in self._contest_ids:
+                unknown_contest = uid
+                break
+        if unknown_contest:
+            await self.refresh_contest_ids(target=unknown_contest)
         # 非好友的待查对局才需要账号状态做「还在打」保护，好友走好友列表
         if self._has_live_branch_pending():
             await self._refresh_account_states()
@@ -1983,6 +2095,18 @@ class AccountGameMonitor:
             raise ConnectionError(f"观战列表请求全部失败: {'; '.join(errors)}")
         if errors:
             logger.debug(f"[MajsoulMonitor] 部分房间观战列表失败: {errors}")
+        # 同一个 uuid 可能在多个筛选里都返回（服务端的 filter 不总是严格按模式），
+        # 去重后再用，避免同一局被处理两次（日志重复、同一局反复判断）
+        unique: List[Dict[str, Any]] = []
+        seen_uuids = set()
+        for game in games:
+            game_uuid = str(game.get("uuid") or "")
+            if game_uuid:
+                if game_uuid in seen_uuids:
+                    continue
+                seen_uuids.add(game_uuid)
+            unique.append(game)
+        games = unique
         self._remember_live_games(games)
         return games
 
@@ -2221,6 +2345,35 @@ class AccountGameMonitor:
             await self._refresh_session_friends(session)
         self._friend_states = self._friend_union()
         return self.is_friend_of_any(aid)
+
+    async def ensure_friends_fresh(self, max_age: float = 30.0, timeout: float = 25.0) -> None:
+        """网页「监控列表」用：好友快照太旧时先刷一次，保证「好友 / 非好友」判定是对的。
+
+        只在没有任何在线账号或快照还算新时直接返回，不会每次都拉好友列表。
+        """
+        online = [session for session in self.online_sessions() if session.conn is not None]
+        if not online:
+            return
+        now = time.time()
+        limit = max(5.0, float(max_age))
+        stale = [
+            session
+            for session in online
+            if now - float(getattr(session, "friends_at", 0) or 0) > limit
+        ]
+        if not stale:
+            return
+        for session in stale:
+            try:
+                await asyncio.wait_for(self._refresh_session_friends(session), timeout=timeout)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug(
+                    f"[MajsoulMonitor] 刷新好友列表失败（好友判定沿用旧快照）："
+                    f"{exc.__class__.__name__}: {exc}"
+                )
+        self._friend_states = self._friend_union()
 
     async def _player_label(self, account_id: int) -> str:
         """把 account_id 换成昵称（查不到就退回数字）。"""
@@ -2657,29 +2810,54 @@ class AccountGameMonitor:
                 info["wait_code"] = code
                 dirty = True
                 if code == 540:
-                    # 无牌谱权限：这次不消耗查询次数，换个账号尽快重试
-                    info["next_query_at"] = time.time() + 60
-                    query_uid = str(self.current_uid or "")
+                    # 无牌谱权限：这次不消耗查询次数，换个账号尽快重试。
+                    # 要标记「真正执行这次查询的账号」，不能用 current_uid（那是主连接，
+                    # 查牌谱是按今日用量挑账号的，两者经常不是同一个，标错了就一直挑中没权限的那个）。
+                    query_uid = str(self.last_record_uid or self.current_uid or "")
                     marked = self.mark_no_paipu_permission(query_uid) if query_uid else False
-                    # 启用的账号本来都在线，下一轮自动挑别的有权限的账号继续查
-                    if not info.get("perm_logged"):
-                        info["perm_logged"] = True
-                        self._event(
-                            "牌谱权限不足",
-                            f"{info.get('nickname')} uuid={uuid} 返回 540："
-                            f"账号 {self.display_uid(query_uid)} 今天没有牌谱查看权限"
-                            f"{'（已标记）' if marked else ''}，"
-                            f"下一轮改用其它有权限的账号（次日 05:01 恢复）",
-                            "WARN",
-                        )
-                    continue
-                # 失败后的重试间隔：好友/手动的局已经确认结束，按快速退避重试就行；
-                # 非好友的局按 T2 轮询（用户要求：T2 固定间隔）
-                if friend or manual:
-                    if attempts <= QUERY_FAST_RETRY_MAX:
-                        delay = QUERY_FAST_RETRY_DELAYS[min(attempts - 1, len(QUERY_FAST_RETRY_DELAYS) - 1)]
+                    if self.has_permitted_account():
+                        info["next_query_at"] = time.time() + 60
+                        # 换账号后如果又 540，还要能再报一次，所以记录「上次报的是哪个账号」
+                        if info.get("perm_logged_uid") != query_uid:
+                            info["perm_logged_uid"] = query_uid
+                            self._event(
+                                "牌谱权限不足",
+                                f"{info.get('nickname')} uuid={uuid} 返回 540："
+                                f"账号 {self._account_label(query_uid)} 今天没有牌谱查看权限"
+                                f"{'（已标记）' if marked else ''}，"
+                                f"下一轮改用其它有权限的账号（次日 05:01 恢复）",
+                                "WARN",
+                            )
                     else:
-                        delay = QUERY_SLOW_RETRY_DELAY
+                        # 所有账号今天都没权限了，别每 60 秒空转一遍
+                        info["next_query_at"] = time.time() + 1800
+                        if not info.get("perm_all_logged"):
+                            info["perm_all_logged"] = True
+                            self._event(
+                                "牌谱权限不足",
+                                f"{info.get('nickname')} uuid={uuid} 返回 540："
+                                f"账号 {self._account_label(query_uid)} 今天没有牌谱查看权限"
+                                f"{'（已标记）' if marked else ''}；"
+                                f"所有账号今天都没有牌谱权限了，等次日 05:01 恢复后再查",
+                                "WARN",
+                            )
+                    continue
+                # code=1203 = 牌谱不存在。好友对局的「结束」是靠观战入口没了判断的，
+                # 中途退出/掉线重开这类局服务端根本不会生成牌谱，查两次就放弃；
+                # 非好友对局只能靠轮询猜结束，1203 也可能只是「还没打完」，所以不放弃。
+                if code == 1203 and friend and attempts >= QUERY_NO_RECORD_MAX:
+                    self._pending.pop(uuid, None)
+                    self._mark_seen(uuid)
+                    self._event(
+                        "没有牌谱",
+                        f"{info.get('nickname')} uuid={uuid} 查了 {attempts} 次都是 code=1203"
+                        f"（牌谱不存在），多半是中途退出、没打完，这局不会再有牌谱，已停止查询",
+                        "WARN",
+                    )
+                    continue
+                # 失败后的重试间隔：好友/手动的局按好友轮询间隔（T1）重试，非好友按 T2
+                if friend or manual:
+                    delay = max(10, int(self.friend_poll_interval))
                 else:
                     delay = int(self.poll_interval)
                 info["next_query_at"] = time.time() + delay
@@ -2846,9 +3024,12 @@ class AccountGameMonitor:
         }
         self._save_pending()
         if account_id:
+            who = self._friend_label(account_id)
+            if who == self.display_uid(account_id):
+                who = f"数字ID {who}"
             self._event(
                 "加入待查牌谱",
-                f"手动查询 uuid={uuid}（玩家 {account_id}），这局结束后自动获取结果",
+                f"手动查询 uuid={uuid}（玩家 {who}），这局结束后自动获取结果",
                 "INFO",
             )
         else:
@@ -2888,26 +3069,21 @@ class AccountGameMonitor:
         return dropped
 
     def _pick_query_session(self, uuid: str = "") -> Optional["AccountSession"]:
-        """挑一个在线账号去查牌谱：有牌谱权限、今天还有额度的账号里，选今日查询次数最少的。
+        """挑一个在线账号去查牌谱：有牌谱权限的账号里，选今日查询次数最少的。
 
+        不限制每天条数（以前的 200 条/天额度已取消），只按查询次数分摊。
         好友的局也一样——不再优先用「这局玩家是它好友」的账号，统一按今日消耗最少来分摊。
         """
         online = self.online_sessions()
         if not online:
             return None
         self._refresh_perm_marks()
-        healthy = [
-            s for s in online
-            if self._perm_is_ok(s.uid) and self.quota.remaining(s.uid) > 0
-        ]
-        if healthy:
-            return min(healthy, key=lambda s: self.quota.used(s.uid))
         permitted = [s for s in online if self._perm_is_ok(s.uid)]
         pool = permitted or online
         return min(pool, key=lambda s: self.quota.used(s.uid))
 
     def _account_label(self, uid: str) -> str:
-        """日志里显示账号的雀魂数字 ID；在线的用会话 label，不在线就现算。"""
+        """日志里显示账号的昵称 + 雀魂数字 ID；在线的用会话 label，不在线就现算。"""
         session = self._sessions.get(str(uid))
         if session is not None:
             try:
@@ -2916,14 +3092,132 @@ class AccountGameMonitor:
                 pass
         return self.display_uid(uid)
 
+    def account_label(self, uid: str) -> str:
+        """对外暴露的账号显示名（昵称 + 雀魂数字 ID），日志里统一用它。"""
+        return self._account_label(uid)
+
+    def friend_nickname(self, account_id: int) -> str:
+        """查好友的游戏昵称（日志里别只写 ID）。找不到就返回空串。"""
+        try:
+            aid = int(account_id or 0)
+        except (TypeError, ValueError):
+            return ""
+        if not aid:
+            return ""
+        # 1) 内存里的好友快照
+        for session in self._sessions.values():
+            info = (session.friends or {}).get(aid)
+            if isinstance(info, dict):
+                name = str(info.get("nickname") or "").strip()
+                if name:
+                    return name
+        # 2) 好友状态并集（快照里可能还没带上）
+        for info in self._friend_states.values():
+            if int(info.get("account_id") or 0) == aid:
+                name = str(info.get("nickname") or "").strip()
+                if name:
+                    return name
+        return ""
+
+    def _friend_label(self, account_id: int) -> str:
+        """好友相关日志用：有昵称就写「昵称(数字ID)」，没有就只写数字 ID。"""
+        shown = self.display_uid(account_id)
+        name = self.friend_nickname(account_id)
+        return f"{name}({shown})" if name else str(shown)
+
+    def _load_contest_map(self) -> None:
+        """读取「内部 contest_uid → 比赛场 ID」缓存。"""
+        try:
+            if not self.contest_map_path.exists():
+                return
+            data = json.loads(self.contest_map_path.read_text(encoding="utf-8-sig") or "{}")
+            if isinstance(data, dict):
+                for uid, value in data.items():
+                    if isinstance(value, dict):
+                        cid = str(value.get("contest_id") or "")
+                        if cid:
+                            self._contest_ids[str(uid)] = cid
+                        name = str(value.get("name") or "")
+                        if name:
+                            self._contest_names[str(uid)] = name
+                self._contest_map_at = float(data.get("_saved_at") or 0) if isinstance(
+                    data.get("_saved_at"), (int, float)
+                ) else 0.0
+        except Exception as exc:
+            logger.debug(f"[MajsoulMonitor] 读取比赛场 ID 缓存失败: {exc}")
+
+    def _save_contest_map(self) -> None:
+        try:
+            payload: Dict[str, Any] = {"_saved_at": self._contest_map_at}
+            for uid, cid in self._contest_ids.items():
+                payload[uid] = {"contest_id": cid, "name": self._contest_names.get(uid, "")}
+            self.contest_map_path.parent.mkdir(parents=True, exist_ok=True)
+            self.contest_map_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception as exc:
+            logger.debug(f"[MajsoulMonitor] 保存比赛场 ID 缓存失败: {exc}")
+
+    async def refresh_contest_ids(
+        self, force: bool = False, target: str = "", max_pages: int = 12
+    ) -> None:
+        """刷新「内部 contest_uid → 比赛场 ID」映射。
+
+        默认半小时一次、翻十几页大会列表；`target` 是刚看到的内部 uid，查到它就可以停。
+        """
+        now = time.time()
+        target = str(target or "").strip()
+        if target and target in self._contest_ids:
+            return
+        if target:
+            # 同一个没查到的比赛场 5 分钟内不再重复翻列表
+            if now - self._contest_try.get(target, 0.0) < 300:
+                return
+            self._contest_try[target] = now
+        elif not force and now - self._contest_map_at < 1800:
+            return
+        session = None
+        for candidate in self.online_sessions():
+            if candidate.conn is not None:
+                session = candidate
+                break
+        if session is None:
+            return
+        try:
+            for page in range(max(1, int(max_pages))):
+                contests = await session.conn.fetch_contest_list(start=page * 30, count=30)
+                if not contests:
+                    break
+                for item in contests:
+                    uid = str(item.get("unique_id") or "")
+                    cid = str(item.get("contest_id") or "")
+                    if not uid or not cid:
+                        continue
+                    self._contest_ids[uid] = cid
+                    name = str(item.get("name") or "")
+                    if name:
+                        self._contest_names[uid] = name
+                if target and target in self._contest_ids:
+                    break
+                if len(contests) < 30:
+                    break
+            self._contest_map_at = now
+            self._save_contest_map()
+        except Exception as exc:
+            logger.debug(f"[MajsoulMonitor] 刷新比赛场 ID 失败: {exc}")
+
+    def contest_code(self, contest_uid: Any) -> str:
+        """比赛场的显示用 ID：查到映射就用真正的比赛场 ID，否则退回内部 ID。"""
+        uid = str(contest_uid or "").strip()
+        if not uid or uid == "0":
+            return uid
+        return self._contest_ids.get(uid) or uid
+
+    def contest_name(self, contest_uid: Any) -> str:
+        return self._contest_names.get(str(contest_uid or "").strip(), "")
+
     def _on_quota_exhausted(self, uid: str) -> None:
-        """某个账号当天牌谱查询额度用完时写一条日志（同一账号每天只写一次）。"""
-        self._event(
-            "额度用尽",
-            f"{self._account_label(uid)} 今日牌谱查询已用 "
-            f"{self.quota.used(uid)}/{self.quota.limit} 条，额度已用完，之后优先用其它账号查询",
-            "WARN",
-        )
+        """额度限制已取消，这里保留空实现（旧版本的 quota 回调仍可能指向它）。"""
 
     async def _fetch_record_with(
         self,
@@ -2931,7 +3225,6 @@ class AccountGameMonitor:
         uuid: str,
         quiet: bool = False,
     ) -> Optional[Any]:
-        """用指定会话拉一次牌谱（调用方持有 _conn_lock）。"""
         if session.conn is None:
             return None
         res = await session.conn.fetch_game_record(uuid)
@@ -2943,9 +3236,9 @@ class AccountGameMonitor:
                 self._event("拉取牌谱失败", f"{session.label} uuid={uuid} code={code}", "WARN")
             # 540 是无牌谱权限，不算一次查询；其它失败仍算查了一次。
             if code != 540:
-                self.quota.consume(session.uid)
+                self.quota.consume(session.uid, key=uuid)
             return None
-        self.quota.consume(session.uid)
+        self.quota.consume(session.uid, key=uuid)
         return res.head
 
     async def fetch_record(
@@ -2961,12 +3254,14 @@ class AccountGameMonitor:
         """
         async with self._conn_lock:
             self.last_record_code = 0
+            self.last_record_uid = str(session.uid) if session is not None else ""
             try:
                 if not self.online_sessions():
                     await self._ensure_sessions_locked()
                 target = session or self._pick_query_session(uuid)
                 if target is None or target.conn is None:
                     return None
+                self.last_record_uid = str(target.uid or "")
                 return await self._fetch_record_with(target, uuid, quiet=quiet)
             except asyncio.CancelledError:
                 raise
@@ -3194,8 +3489,10 @@ class AccountGameMonitor:
                     game_id, self.data_dir / "review" / "paipu"
                 )
                 if raw and not self.last_paipu_cache_hit:
-                    # 只有实际从服务器拉取时，才计入当天的牌谱数量；命中缓存不计数
-                    self.quota.consume(session.uid)
+                    # 只有实际从服务器拉取时，才计入当天的牌谱数量；命中缓存不计数。
+                    # 同一局前面已经用 fetch_game_record 拿过头部（也记了一次），
+                    # 所以这里带上 uuid 作 key，同一局当天只算一次，避免统计翻倍。
+                    self.quota.consume(session.uid, key=game_id)
                 return raw
             except asyncio.CancelledError:
                 raise
@@ -3210,11 +3507,11 @@ class AccountGameMonitor:
                     marked = self.mark_no_paipu_permission(uid) if uid else False
                     if marked:
                         self.last_paipu_error = (
-                            f"当前账号 {self.display_uid(uid)} 没有牌谱查看权限（code=540），已标记为「无权限」"
+                            f"当前账号 {self._account_label(uid)} 没有牌谱查看权限（code=540），已标记为「无权限」"
                         )
                     else:
                         self.last_paipu_error = (
-                            f"当前账号 {self.display_uid(uid)} 没有牌谱查看权限（code=540），"
+                            f"当前账号 {self._account_label(uid)} 没有牌谱查看权限（code=540），"
                             f"该账号已手动恢复，保持「有」权限"
                         )
                 logger.warning(f"[MajsoulMonitor] 拉取牌谱回放失败 {game_id}: {self.last_paipu_error}")
@@ -3514,9 +3811,19 @@ class AccountGameMonitor:
         }
 
     def friends_snapshot(self) -> List[Dict[str, Any]]:
-        """「好友列表」页用：每个在线账号及其好友。"""
+        """「好友列表」页用：每个在线账号及其好友，账号顺序跟账号池一致。"""
+        # 账号池里拖拽调整过的顺序优先；不在池里的账号排最后（保持登录顺序）
+        order: Dict[str, int] = {}
+        for idx, acc in enumerate(self._accounts()):
+            uid_text = str(acc.get("uid") or "").strip()
+            if uid_text and uid_text not in order:
+                order[uid_text] = idx
+        sessions = sorted(
+            self._sessions.values(),
+            key=lambda s: order.get(str(s.uid), len(order)),
+        )
         out: List[Dict[str, Any]] = []
-        for session in self._sessions.values():
+        for session in sessions:
             friends = sorted(session.friends.values(), key=self._friend_sort_key)
             out.append(
                 {
@@ -3560,6 +3867,8 @@ class AccountGameMonitor:
                 break
         if target is None or target.conn is None:
             return False, "没有在线账号把他当好友（可能好友列表还没刷新）"
+        friend_label = self._friend_label(aid)
+        nickname = self.friend_nickname(aid)
         try:
             await asyncio.wait_for(target.conn.remove_friend(aid), timeout=STATE_RPC_TIMEOUT)
         except asyncio.CancelledError:
@@ -3567,15 +3876,15 @@ class AccountGameMonitor:
         except Exception as exc:
             self._event(
                 "删除好友",
-                f"{target.label} 删除好友 {self.display_uid(aid)} 失败："
+                f"{target.label} 删除好友 {friend_label} 失败："
                 f"{exc.__class__.__name__}: {exc}",
                 "WARN",
             )
             return False, f"删除失败：{exc.__class__.__name__}"
         target.friends.pop(aid, None)
         self._friend_states = self._friend_union()
-        self._event("删除好友", f"{target.label} 已删除好友 {self.display_uid(aid)}", "INFO")
-        return True, "已删除该好友"
+        self._event("删除好友", f"{target.label} 已删除好友 {friend_label}", "INFO")
+        return True, (f"已删除好友 {nickname}" if nickname else "已删除该好友")
 
     # ── 已播报记录 ────────────────────────────────────────
     def _load_seen(self) -> Dict[str, float]:

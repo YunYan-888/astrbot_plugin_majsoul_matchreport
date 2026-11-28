@@ -438,6 +438,9 @@ class MajsoulPaipuParser:
 
     def _handle_liu_ju(self, log: RecordLiuJu):
         assert self.kyoku is not None, "liu ju before new round"
+        # 血战 / 万象修罗：这一局里已经有人和过牌，流局前先把和牌结算掉
+        if self._xuezhan_mid_hules and self._xuezhan_flush_agari():
+            return
         self._accept_riichi()
 
         if log.type == 1:
@@ -456,6 +459,10 @@ class MajsoulPaipuParser:
 
     def _handle_no_tile(self, log: RecordNoTile):
         assert self.kyoku is not None, "no tile before new round"
+        # 血战 / 万象修罗：这一局里已经有人和过牌，流局前先把和牌结算掉，
+        # 否则这几手和牌会随着流局一起丢掉（播报里就只剩「流局」）。
+        if self._xuezhan_mid_hules and self._xuezhan_flush_agari():
+            return
         delta = [0, 0, 0, 0]
 
         # NOTE: mjs wll not give delta_scores if everyone is (no)ten
@@ -749,18 +756,20 @@ class MajsoulPaipuParser:
             _exact_points=True,  # 点数已按番/符算好，别再走 _tlround 的补偿
         )
 
-    def _handle_hu_le_xue_zhan_end(self, log: RecordHuleXueZhanEnd):
-        """血战 / 万象修罗：一局结束的结算动作。
+    def _xuezhan_flush_agari(self, history=None, mids=None) -> bool:
+        """把血战 / 万象修罗攒下的中途和牌结算成一手「和了」。
 
-        优先用 `hules_history`（完整 HuleInfo，带点数）；没有就退回中途攒下的
-        `HuInfoXueZhanMid`，用番/符估点数——至少保证和牌信息能播出来。
+        优先用 `history`（完整 HuleInfo，带点数）；没有就退回 `HuInfoXueZhanMid`，
+        用番/符估点数。返回是否真的落了牌局。
         """
         if self.kyoku is None:
-            return
-        history = list(getattr(log, "hules_history", []) or [])
-        mids = list(self._xuezhan_mid_hules or [])
+            return False
+        history = list(history or [])
+        mids = list(mids if mids is not None else (self._xuezhan_mid_hules or []))
+        if not history and not mids:
+            return False
         if not mids:
-            mids = [(hule, -1) for hule in (getattr(log, "hules", []) or [])]
+            mids = [(hule, -1) for hule in history]
         self._xuezhan_mid_hules = []
 
         def mid_ldseat(idx: int) -> int:
@@ -797,6 +806,15 @@ class MajsoulPaipuParser:
         self.kyoku.result = Agari(agari=agari, uras=ura, round=self.kyoku.round)
         self.kyokus.append(self.kyoku)
         self.kyoku = None
+        return True
+
+    def _handle_hu_le_xue_zhan_end(self, log: RecordHuleXueZhanEnd):
+        """血战 / 万象修罗：一局结束的结算动作。"""
+        self._xuezhan_flush_agari(
+            history=list(getattr(log, "hules_history", []) or []),
+            mids=list(self._xuezhan_mid_hules or [])
+            or [(hule, -1) for hule in (getattr(log, "hules", []) or [])],
+        )
 
     def _parse_hu_le_ldseat(self, hule, is_head_bump: bool, ldseat: int):
         """带着「放铳者」解析和牌（血战的结算记录里没有放铳者，用中途和牌时记下的座位）。"""

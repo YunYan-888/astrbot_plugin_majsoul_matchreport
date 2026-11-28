@@ -66,7 +66,7 @@ LOG_DIR_NAME = "query_logs"
 LOG_RETAIN_DAYS = 30          # 日志保留天数默认值（插件设置里可以改，见 LOG_RETAIN_KEY）
 LOG_RETAIN_KEY = "log_retain_days"
 LOG_RETAIN_MAX_DAYS = 3650
-VERSION = "1.1.2"
+VERSION = "1.2.0"
 # 群指令默认名（可在「指令设置」页修改）
 DEFAULT_CMD_ADD = "雀魂播报"
 DEFAULT_CMD_REMOVE = "删除播报"
@@ -112,6 +112,8 @@ BROADCAST_CMD_DEFAULTS = {
 }
 # 各群的播报开关存档：{group_id: {"three": 1/0, "east": 1/0, "friend": 1/0, "contest": 1/0}}
 GROUP_SETTINGS_FILE = "majsoul_matchreport_group_settings.json"
+# 群名缓存：{group_id: {"name": "群名", "at": 更新时间}}，网页上显示「群名 + 群号」用
+GROUP_NAMES_FILE = "majsoul_matchreport_group_names.json"
 THEME_FILE = "majsoul_matchreport_theme.json"
 # 四人模式ID -> 房间名称映射（仅四麻）
 FOUR_PLAYER_MODES = {
@@ -159,6 +161,9 @@ THREE_PLAYER_MODE_IDS = {17, 18, 19, 20, 21, 22, 23, 24, 25, 26}
 # 东场房间：名字以「东」结尾的（四人东 2/5/8/11/15、三人东 17/19/21/23/25、乱斗东 13）
 # 与 review/state_monitor.py 里的 EAST_MODE_IDS 一致，这里从 MODE_LABELS 推导，避免两处写死不同步
 EAST_MODE_IDS = {mode for mode, label in MODE_LABELS.items() if str(label).endswith("东")}
+# 王座间（只有雀圣和魂天能进）：四人东 15 / 四人南 16、三人东 25 / 三人南 26。
+# 这些房间里魂天玩家的段位分叫「魂珠」，播报里用 ❂ 代替 pt
+KONTEN_ROOM_MODE_IDS = {15, 16, 25, 26}
 # 播报里「近期战绩」只保留同模式最近 10 场
 RECENT_RANK_LIMIT = 10
 
@@ -554,6 +559,57 @@ def save_group_settings(data: Dict[str, Dict[str, int]]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _group_names_path() -> Path:
+    base = StarTools.get_data_dir("astrbot_plugin_majsoul_matchreport")
+    base.mkdir(parents=True, exist_ok=True)
+    return base / GROUP_NAMES_FILE
+
+
+def load_group_names() -> Dict[str, Dict[str, Any]]:
+    """加载群号 → {name, at}（群名缓存，用来在网页上显示「群名 + 群号」）。"""
+    path = _group_names_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig") or "{}")
+    except Exception as exc:
+        logger.warning(f"[MajsoulMonitor] 读取群名缓存失败: {exc}")
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    result: Dict[str, Dict[str, Any]] = {}
+    for gid, value in data.items():
+        gid = str(gid or "").strip()
+        if not gid or not isinstance(value, dict):
+            continue
+        name = str(value.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            at = float(value.get("at") or 0)
+        except (TypeError, ValueError):
+            at = 0.0
+        result[gid] = {"name": name, "at": at}
+    return result
+
+
+def save_group_names(data: Dict[str, Dict[str, Any]]) -> None:
+    payload: Dict[str, Dict[str, Any]] = {}
+    for gid, value in (data or {}).items():
+        gid = str(gid or "").strip()
+        name = str((value or {}).get("name") or "").strip() if isinstance(value, dict) else ""
+        if not gid or not name:
+            continue
+        try:
+            at = float((value or {}).get("at") or 0)
+        except (TypeError, ValueError):
+            at = 0.0
+        payload[gid] = {"name": name, "at": at}
+    _group_names_path().write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
 def encode_account_id2(account_id: int) -> int:
     p = 6139246 ^ account_id
     h_mask = 67108863
@@ -607,23 +663,141 @@ def unranked_kind(mode_id: Any, contest_uid: Any = "", room_id: Any = 0) -> str:
     return ""
 
 
-def unranked_label(kind: str, contest_uid: str = "", room_id: int = 0) -> str:
-    """非段位场的房间性质文字：友人场（房间号）/ 比赛场（比赛场ID）。"""
+def unranked_label(kind: str, contest_uid: str = "", room_id: int = 0, mode_name: str = "") -> str:
+    """非段位场的房间性质文字：友人场（房间号）/ 友人场·修罗之战（房间号）/ 比赛场（比赛场ID）。"""
     kind = str(kind or "")
     contest = str(contest_uid or "").strip()
     try:
         room = int(room_id or 0)
     except (TypeError, ValueError):
         room = 0
+    # 友人场的特殊玩法写在房间性质后面，例如「友人场·修罗之战（76211）」
+    friend_prefix = "友人场"
+    mode_name = str(mode_name or "").strip()
+    if mode_name:
+        friend_prefix = f"友人场·{mode_name}"
     if kind == "contest":
         return f"比赛场（{contest}）" if contest else "比赛场"
     if kind == "friend":
-        return f"友人场（{room}）" if room else "友人场"
+        return f"{friend_prefix}（{room}）" if room else friend_prefix
     if contest:
         return f"比赛场（{contest}）"
     if room:
-        return f"友人场（{room}）"
+        return f"{friend_prefix}（{room}）"
     return "非段位场"
+
+
+# 友人场里带特殊规则的模式（按牌谱 mode.detail_rule 的开关认名字）
+# 值是一组开关名，全部为 1 才算这个模式；单个字符串就只判这一个开关
+_FRIEND_MODE_FLAGS = (
+    ("wanxiangxiuluo_mode", "万象修罗"),                 # 有癞子、每局换三张
+    (("xuezhandaodi", "huansanzhang"), "修罗之战"),       # 血战到底 + 换三张、无癞子
+    (("chuanma", "huansanzhang"), "赤羽之战"),            # 赤羽（穿马）+ 换三张
+    ("reveal_discard", "暗夜之战"),                       # 明牌（暗夜）
+)
+
+# 娱乐玩法开关 id（detail_rule.amusement_switches）→ 模式名
+_FRIEND_MODE_SWITCH_NAMES = {20: "宝牌双刃"}
+
+# 友人场选的局数（牌谱 mode.mode）：四人 1=东风 2=半庄 4=一局，三人同值 +10
+_FRIEND_ROUND_NAMES = {
+    1: "东",
+    2: "南",
+    4: "一局",
+    11: "东",
+    12: "南",
+    14: "一局",
+}
+
+# 人机对局的 mode.mode（四人 3 / 三人 13；没样本核对，认不出时退回「四人麻将 / 三人麻将」）
+_FRIEND_AI_ROUND_MODES = {3: 4, 13: 3}
+
+
+def _obj_field(obj: Any, name: str, default: Any = None) -> Any:
+    """从 dict 或对象里取字段（牌谱头部有时是 proto 对象，有时是 JSON dict）。"""
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _mode_rule_flag(rule: Any, name: str) -> bool:
+    try:
+        return bool(int(_obj_field(rule, name, 0) or 0))
+    except (TypeError, ValueError):
+        return False
+
+
+def friend_mode_label(head: Any, nplayers: int = 0) -> str:
+    """友人场房间行里要写的玩法：特殊玩法优先，普通对局按人数 + 局数写（四人东 / 三人南 / 四人一局…）。"""
+    name = friend_mode_name(head)
+    if name:
+        return name
+    try:
+        count = int(nplayers or 0)
+    except (TypeError, ValueError):
+        count = 0
+    if count >= 4:
+        prefix = "四人"
+    elif count == 3:
+        prefix = "三人"
+    else:
+        return ""
+    config = _obj_field(head, "config", None)
+    mode = _obj_field(config, "mode", None)
+    try:
+        mode_code = int(_obj_field(mode, "mode", 0) or 0)
+    except (TypeError, ValueError):
+        mode_code = 0
+    if mode_code in _FRIEND_AI_ROUND_MODES:
+        return f"{prefix}人机"
+    round_name = _FRIEND_ROUND_NAMES.get(mode_code)
+    if round_name:
+        return f"{prefix}{round_name}"
+    return f"{prefix}麻将"
+
+
+def _head_player_count(head: Any) -> int:
+    """这局是几个人打的（友人场里用来区分四人麻将 / 三人麻将）。"""
+    total = 0
+    for key in ("accounts", "robots"):
+        try:
+            total += len(_obj_field(head, key, None) or [])
+        except TypeError:
+            continue
+    if total >= 3:
+        return total
+    # 人机对局里 accounts/robots 常常只有 1 条（全是电脑），退回结果里的座位表
+    result = _obj_field(head, "result", None)
+    players = _obj_field(result, "players", None) or []
+    try:
+        return max(total, len(players))
+    except TypeError:
+        return total
+
+
+def friend_mode_name(head: Any) -> str:
+    """这局是友人场的哪种特殊玩法；认不出来返回空串。
+
+    目前能认：修罗之战、暗夜之战、赤羽之战、万象修罗、宝牌双刃。
+    """
+    config = _obj_field(head, "config", None)
+    mode = _obj_field(config, "mode", None)
+    rule = _obj_field(mode, "detail_rule", None)
+    if rule is None:
+        return ""
+    for flag, name in _FRIEND_MODE_FLAGS:
+        flags = flag if isinstance(flag, tuple) else (flag,)
+        if all(_mode_rule_flag(rule, item) for item in flags):
+            return name
+    switches = _obj_field(rule, "amusement_switches", None) or []
+    for sid in switches:
+        try:
+            name = _FRIEND_MODE_SWITCH_NAMES.get(int(sid))
+        except (TypeError, ValueError):
+            name = None
+        if name:
+            return name
+    return ""
 
 
 def notice_field(raw: Any, name: str, default: Any = "") -> str:
@@ -732,6 +906,8 @@ def _paipu_text(text: str) -> str:
         "ドラ": "宝牌",
         "自風": "自风",
         "場風": "场风",
+        # 宝牌双刃：手里有和宝牌指示牌一样的牌叫「影牌」，每张减 1 番（牌谱里记成「役810(n飜)」）
+        "役810": "影牌",
         "飜": "番",
         "∀": "all",
     }
@@ -739,7 +915,9 @@ def _paipu_text(text: str) -> str:
     for src in sorted(mapping, key=len, reverse=True):
         text = text.replace(src, mapping[src])
     # 兜底：把役种/点数里残留的日文繁体字逐字转简体
-    return text.translate(_PAIPU_TRAD_TO_SIMP).strip()
+    text = text.translate(_PAIPU_TRAD_TO_SIMP).strip()
+    # 影牌是扣番的，写成负番数（影牌(2番) → 影牌(-2番)）
+    return re.sub(r"影牌\((\d+)番\)", lambda m: f"影牌(-{m.group(1)}番)", text)
 
 
 # 仅覆盖牌谱文本里会出现的繁体/日文汉字，避免误改玩家昵称
@@ -811,6 +989,27 @@ def _paipu_dealer_seat(entry: list, player_count: int) -> int:
 def _paipu_han_fu_order(point: str) -> str:
     """把「30符4番」统一成「4番30符」。"""
     return re.sub(r"(\d+)符(\d+)番", r"\2番\1符", str(point))
+
+
+_PAIPU_YAKUMAN_SUFFIX = re.compile(r"[（(]\s*役[满満]\s*[)）]\s*$")
+
+
+def _paipu_drop_duplicate_yakuman(point: str, yaku: List[str]) -> List[str]:
+    """点数里已经写了「役满」时，去掉役种后面的「(役满)」，避免一条播报里出现两个役满。
+
+    例：「役满16000点all 四暗刻(役满)」→「役满16000点all 四暗刻」；
+    「役满96000点 大四喜(役满)、字一色(役满)」→「役满96000点 大四喜、字一色」。
+    点数里不是役满（例如三倍满）时保持原样。
+    """
+    if "役满" not in str(point or ""):
+        return yaku
+    cleaned = []
+    for item in yaku:
+        text = _PAIPU_YAKUMAN_SUFFIX.sub("", str(item)).strip()
+        if text:
+            cleaned.append(text)
+    # 全是「(役满)」后缀、清完没东西了，就保留原样，免得整行役种消失
+    return cleaned or yaku
 
 
 def _paipu_agari_items(result: list):
@@ -953,14 +1152,86 @@ def _paipu_han(point: str, yaku: List[str]) -> int:
     for key, han in (("三倍满", 11), ("倍满", 8), ("跳满", 6), ("满贯", 5)):
         if key in point:
             return han
-    total = 0
-    for item in yaku:
-        found = re.search(r"(\d+)番", item)
-        if found:
-            total += int(found.group(1))
+    total = _paipu_yaku_han(yaku)
     if total:
         return total
     return 13 if any("役満" in y or "役满" in y for y in yaku) else 0
+
+
+def _paipu_shadow_han(yaku: List[str]) -> int:
+    """宝牌双刃的「影牌」扣了多少番。
+
+    这个模式里宝牌每张算 2 番，手里有和宝牌指示牌一样的牌叫「影牌」，每张减 1 番；
+    牌谱把它记成「役810(n飜)」，n 就是扣掉的番数（2 张影牌就是 2）。
+    """
+    total = 0
+    for item in yaku or []:
+        text = str(item or "")
+        if not text.split("(")[0].strip().startswith("影牌"):
+            continue
+        found = re.search(r"(\d+)番", text)
+        if found:
+            total += int(found.group(1))
+    return total
+
+
+def _paipu_yaku_han(yaku: List[str]) -> int:
+    """把役种里的番数加起来（影牌是扣番的，要减掉）。
+
+    影牌在牌谱里记成正的 n 番（「役810(2飜)」），实际规则是扣 n 番，
+    所以净番数 = 其它役相加 - 影牌（立直1 + 平和1 + 宝牌8 + 里宝牌8 - 影牌2 = 16 番）。
+    """
+    shadow = _paipu_shadow_han(yaku)
+    total = 0
+    for item in yaku or []:
+        text = str(item or "")
+        if text.split("(")[0].strip().startswith("影牌"):
+            continue
+        found = re.search(r"(\d+)番", text)
+        if found:
+            total += int(found.group(1))
+    total -= shadow
+    # 这个模式影牌最多扣到 1 番（牌谱的规则限制，扣不成 0 番或负数）
+    if shadow:
+        return max(1, total)
+    return max(0, total)
+
+
+def _paipu_kazoe_text(point: str, yaku: List[str]) -> str:
+    """累计役满补上番数：「累计役满32000点」→「16番累计役满32000点」。"""
+    text = str(point or "")
+    if "累计役满" not in text or re.search(r"\d+番累计役满", text):
+        return text
+    han = _paipu_yaku_han(yaku)
+    if han < 13:
+        return text
+    return text.replace("累计役满", f"{han}番累计役满", 1)
+
+
+def _paipu_yakuman_mult(yaku: List[str]) -> int:
+    """这手役满实际是几倍：大四喜 / 四暗刻单骑 / 纯正九莲宝灯 / 国士十三面各算 2 倍，
+    其余役满 1 倍，复合役满直接相加（天和 + 国士无双十三面 = 三倍役满）。"""
+    total = 0
+    for item in yaku or []:
+        name = _paipu_yakuman_name(str(item or "").split("(")[0])
+        value = _YAKUMAN_VALUES.get(name)
+        if value:
+            total += value
+    return total
+
+
+def _paipu_yakuman_text(point: str, yaku: List[str]) -> str:
+    """役满点数写成实际倍数：「役满64000点 四暗刻单骑」→「两倍役满64000点」。
+
+    累计役满另有番数写法（见 `_paipu_kazoe_text`），这里不动。
+    """
+    text = str(point or "")
+    if "役满" not in text or "累计役满" in text:
+        return text
+    prefix = _yakuman_mult_text(_paipu_yakuman_mult(yaku))
+    if not prefix:
+        return text
+    return text.replace("役满", f"{prefix}役满", 1)
 
 
 # 和牌档位：0=不够满贯 1=满贯 2=跳满 3=倍满 4=三倍满 5=役满（含累计役满）
@@ -1053,6 +1324,7 @@ _PAIPU_YAKU_ORDER = (
     ("宝牌", "ドラ"),                                       # 11 宝牌
     ("赤宝牌", "赤ドラ"),                                   # 12 红宝牌
     ("里宝牌", "裏ドラ"),                                   # 13 里宝牌
+    ("影牌",),                                              # 14 影牌（宝牌双刃的扣番役）
 )
 
 
@@ -1097,6 +1369,9 @@ def _paipu_player_events(raw: Dict, seat: int, sanma: bool = False):
             if not _paipu_keep_hand(point, yaku, sanma):
                 continue
             point = _paipu_han_fu_order(point)
+            yaku = _paipu_drop_duplicate_yakuman(point, yaku)
+            point = _paipu_kazoe_text(point, yaku)
+            point = _paipu_yakuman_text(point, yaku)
             winner_name = names[winner] if winner < len(names) else "电脑"
             yaku_text = (" " + "、".join(yaku)) if yaku else ""
             if winner == seat:
@@ -1144,6 +1419,9 @@ def _paipu_merged_events(raw: Dict, seats_map: Dict[int, str], sanma: bool = Fal
             if not _paipu_keep_hand(point, yaku, sanma):
                 continue
             point = _paipu_han_fu_order(point)
+            yaku = _paipu_drop_duplicate_yakuman(point, yaku)
+            point = _paipu_kazoe_text(point, yaku)
+            point = _paipu_yakuman_text(point, yaku)
             winner_name = names[winner] if winner < len(names) else "电脑"
             yaku_text = (" " + "、".join(yaku)) if yaku else ""
             tsumo = winner == from_seat
@@ -1164,8 +1442,11 @@ def _paipu_merged_events(raw: Dict, seats_map: Dict[int, str], sanma: bool = Fal
     return list(dict.fromkeys(wins)), list(dict.fromkeys(deals))
 
 
-def _format_pt_delta(delta: int, level_id: int) -> str:
-    """段位分变化：魂天内部按 ×100 存（160 就是 1.6pt），其它段位就是整数分。"""
+def _format_pt_delta(delta: int, level_id: int, unit: str = "pt") -> str:
+    """段位分变化：魂天内部按 ×100 存（160 就是 1.6），其它段位就是整数分。
+
+    unit 是单位后缀：普通段位是 pt，王座间的魂天是魂珠（❂）。
+    """
     try:
         value = int(delta or 0)
     except (TypeError, ValueError):
@@ -1174,8 +1455,8 @@ def _format_pt_delta(delta: int, level_id: int) -> str:
         return ""
     major = (int(level_id or 0) % 10000) // 100
     if major >= 6:  # 魂天（level.py 里 LEVEL_KONTEN - 1）
-        return f"{value / 100:+.1f}pt"
-    return f"{value:+d}pt"
+        return f"{value / 100:+.1f}{unit}"
+    return f"{value:+d}{unit}"
 
 
 def _level_rank_key(level_id: int) -> tuple:
@@ -2013,6 +2294,8 @@ def _paipu_yakuman_events(raw: Dict, seat: int) -> List[Dict[str, Any]]:
                     "winner_name": names[winner] if winner < len(names) else "电脑",
                     "multiplier": multiplier,
                     "names": yakuman_names,
+                    # 一共多少番（累计役满要写「16番累计役满」，影牌在这时已经扣掉）
+                    "han": _paipu_yaku_han(yaku_cn),
                     "yaku": [y for y in yaku_cn if str(y).strip()],
                     "layout": layout,
                     "tiles": _paipu_winner_hand(
@@ -2030,8 +2313,9 @@ def _yakuman_message(nickname: str, event: Dict[str, Any], with_tiles: bool = Tr
     event_names = [str(n) for n in (event.get("names") or [])]
     names = "".join(event_names)
     if event_names == ["累计役满"]:
-        # 累计役满永远只有一倍，不写倍数前缀
-        body = "累计役满"
+        # 累计役满永远只有一倍，不写倍数前缀，但要把番数写上（「16番累计役满」）
+        kazoe_han = int(event.get("han") or 0)
+        body = f"{kazoe_han}番累计役满" if kazoe_han >= 13 else "累计役满"
     elif any("役满" in n for n in event_names):
         body = f"{mult_text}{names}"
     else:
@@ -2067,6 +2351,12 @@ class MajsoulMonitorPlugin(Star):
         self._log_content_cache: Dict[str, tuple] = {}
         # 群主/管理员身份缓存，避免每条指令都去问一次群成员列表
         self._group_role_cache: Dict[str, tuple] = {}
+        # 群名缓存：{group_id: {"name": 群名, "at": 更新时间}}，网页上显示「群名 + 群号」
+        self._group_names: Dict[str, Dict[str, Any]] = {}
+        # 群名的拉取节流：{group_id: 上次尝试时间}，避免每条消息都问一次群信息
+        self._group_name_try: Dict[str, float] = {}
+        # 上次从平台拉「群列表」的时间（整批同步群名用）
+        self._group_names_synced_at: float = 0.0
 
     # ── 生命周期 ──────────────────────────────────────
     async def initialize(self):
@@ -2080,6 +2370,11 @@ class MajsoulMonitorPlugin(Star):
         except Exception as exc:
             logger.warning(f"[MajsoulMonitor] 加载群播报设置失败: {exc}")
             self.group_settings = {}
+        try:
+            self._group_names = load_group_names()
+        except Exception as exc:
+            logger.warning(f"[MajsoulMonitor] 加载群名缓存失败: {exc}")
+            self._group_names = {}
         cfg_nodes = self.config.get("api_nodes", [])
         if cfg_nodes and isinstance(cfg_nodes, list):
             _API_NODES.clear()
@@ -2121,6 +2416,11 @@ class MajsoulMonitorPlugin(Star):
             else "[MajsoulMonitor] 插件已禁用（enabled=false）"
         )
         self._register_web_apis()
+        # 后台把「群号 → 群名」整批补一次：这样没在群里发过消息的群也能显示群名
+        try:
+            asyncio.create_task(self._sync_group_names(force=True))
+        except Exception as exc:
+            logger.debug(f"[MajsoulMonitor] 启动同步群名失败: {exc}")
 
     def _migrate_command_names(self) -> None:
         """把旧版默认指令名换成新的：雀魂播报+ → 雀魂播报，雀魂播报- → 删除播报。
@@ -2291,6 +2591,98 @@ class MajsoulMonitorPlugin(Star):
         return f"该玩家播报时限仅剩{days}天，请重新使用/{add_name}指令重置期限"
 
     # ── 各群播报开关（三麻 / 东场 / 友人 / 比赛）─────────────
+    def _group_display_name(self, group_id: Any) -> str:
+        """群名（没记录过就返回空串）。网页上显示「群名 群号」用。"""
+        gid = str(group_id or "").strip()
+        if not gid:
+            return ""
+        return str((self._group_names.get(gid) or {}).get("name") or "")
+
+    async def _remember_group_name(self, event: AstrMessageEvent, group_id: Any) -> None:
+        """顺手把群名记下来（同群 6 小时内只拉一次；失败 10 分钟内不重试）。"""
+        gid = str(group_id or "").strip()
+        if not gid:
+            return
+        now = time.time()
+        cached = self._group_names.get(gid) or {}
+        if cached.get("name") and now - float(cached.get("at") or 0) < 6 * 3600:
+            return
+        if now - float(self._group_name_try.get(gid) or 0) < 600:
+            return
+        self._group_name_try[gid] = now
+        getter = getattr(event, "get_group", None)
+        if not callable(getter):
+            return
+        try:
+            group = await getter()
+        except Exception:
+            return
+        name = str(getattr(group, "group_name", "") or "").strip() if group is not None else ""
+        if not name or name == cached.get("name"):
+            return
+        self._group_names[gid] = {"name": name, "at": now}
+        try:
+            save_group_names(self._group_names)
+        except Exception as exc:
+            logger.warning(f"[MajsoulMonitor] 保存群名缓存失败: {exc}")
+
+    async def _sync_group_names(self, force: bool = False) -> int:
+        """从平台拉一次「群列表」，把群号→群名整批补齐。
+
+        以前只能靠群里发消息时顺手记（没发过消息的群就没有群名），
+        这里直接问平台要群列表，没发过消息的群也能拿到群名。
+        返回这次新写入/更新的群数量。
+        """
+        now = time.time()
+        # 普通调用 10 分钟最多一次；强制同步（发现有群还没群名）也至少间隔 1 分钟，避免反复请求
+        min_gap = 60 if force else 600
+        if now - float(self._group_names_synced_at or 0) < min_gap:
+            return 0
+        self._group_names_synced_at = now
+
+        insts = []
+        try:
+            manager = getattr(self.context, "platform_manager", None)
+            insts = list(getattr(manager, "platform_insts", None) or [])
+        except Exception:
+            insts = []
+        if not insts:
+            return 0
+
+        updated = 0
+        for platform in insts:
+            client = None
+            try:
+                getter = getattr(platform, "get_client", None)
+                if callable(getter):
+                    client = getter()
+            except Exception:
+                client = None
+            if client is None or not hasattr(client, "call_action"):
+                continue
+            try:
+                groups = await client.call_action("get_group_list")
+            except Exception as exc:
+                logger.debug(f"[MajsoulMonitor] 拉取群列表失败，跳过这个平台: {exc}")
+                continue
+            for item in groups or []:
+                gid = str(notice_field(item, "group_id") or "").strip()
+                name = str(notice_field(item, "group_name") or "").strip()
+                if not gid or not name:
+                    continue
+                cached = self._group_names.get(gid) or {}
+                if cached.get("name") == name:
+                    continue
+                self._group_names[gid] = {"name": name, "at": now}
+                updated += 1
+        if updated:
+            try:
+                save_group_names(self._group_names)
+            except Exception as exc:
+                logger.warning(f"[MajsoulMonitor] 保存群名缓存失败: {exc}")
+            logger.info(f"[MajsoulMonitor] 已同步 {updated} 个群名")
+        return updated
+
     def _default_broadcast(self, kind: str) -> bool:
         """插件设置里的默认开关：所有群的初始默认值。"""
         key = BROADCAST_DEFAULT_KEYS.get(kind, "")
@@ -2549,6 +2941,11 @@ class MajsoulMonitorPlugin(Star):
             "删除好友"
         )
         self.context.register_web_api(
+            "/astrbot_plugin_majsoul_matchreport/api/group_names/sync",
+            self._api_sync_group_names, ["POST"],
+            "从平台同步全部群名"
+        )
+        self.context.register_web_api(
             "/astrbot_plugin_majsoul_matchreport/api/monitor_status",
             self._api_monitor_status, ["GET"],
             "对局监控运行状态"
@@ -2785,7 +3182,23 @@ class MajsoulMonitorPlugin(Star):
 
     async def _api_list_monitored(self):
         """API: 返回所有监控玩家及群信息（含今日播报次数、是否已是好友）"""
+        # 先把好友快照刷到足够新，网页一打开就能显示「好友 / 非好友」，不用手动点刷新
+        if self._monitor is not None:
+            try:
+                await self._monitor.ensure_friends_fresh()
+            except Exception as exc:
+                logger.debug(
+                    f"[MajsoulMonitor] 刷新好友快照失败（沿用旧快照判定好友）："
+                    f"{exc.__class__.__name__}: {exc}"
+                )
         result = []
+        # 打开监控列表就顺手同步一次群名（有群还没群名时立刻补，否则 10 分钟内最多一次）
+        try:
+            bound = {str(g) for ent in self.monitored.values() for g in (ent.get("group_ids") or [])}
+            missing = any(gid and not self._group_display_name(gid) for gid in bound)
+            await self._sync_group_names(force=missing)
+        except Exception as exc:
+            logger.debug(f"[MajsoulMonitor] 补充群名失败（不影响列表）：{exc}")
         broadcast = self._monitor.broadcast_snapshot() if self._monitor is not None else {}
         counts = broadcast.get("counts") or {}
         for nick, info in self.monitored.items():
@@ -2802,6 +3215,8 @@ class MajsoulMonitorPlugin(Star):
                 g_expire = self._group_expire_ts(info, gid_s)
                 groups.append({
                     "group_id": gid_s,
+                    # 群名（收到过该群消息才会记录，没记录时为空串）
+                    "group_name": self._group_display_name(gid_s),
                     "added_at": g_added,
                     "added_time": datetime.fromtimestamp(g_added).strftime("%Y-%m-%d %H:%M:%S") if g_added else "",
                     "expire_time": datetime.fromtimestamp(g_expire).strftime("%Y-%m-%d %H:%M:%S") if g_expire else "",
@@ -2837,12 +3252,33 @@ class MajsoulMonitorPlugin(Star):
         if self._monitor is None:
             return jsonify({"ok": False, "message": "监控未启动，请先登录账号"})
         accounts = self._monitor.friends_snapshot()
+        # account_id -> 有几个群在播报这个玩家（好友列表的「播报群数」列），
+        # 顺便记下具体是哪几个群，右键点数字时列出来
+        monitor_groups: Dict[int, int] = {}
+        monitor_group_ids: Dict[int, List[str]] = {}
+        for entry in self.monitored.values():
+            aid_mon = int(entry.get("account_id") or entry.get("player_id") or 0)
+            if not aid_mon:
+                continue
+            try:
+                groups = self._monitored_groups(entry)
+            except Exception:
+                groups = []
+            if groups:
+                monitor_groups[aid_mon] = len(groups)
+                monitor_group_ids[aid_mon] = groups
         for acc in accounts:
             try:
                 acc["display_uid"] = encode_account_id(int(acc.get("uid") or 0))
             except Exception:
                 acc["display_uid"] = 0
             for friend in acc.get("friends", []):
+                aid_friend = int(friend.get("account_id") or 0)
+                friend["monitor_groups"] = int(monitor_groups.get(aid_friend, 0))
+                gids = list(monitor_group_ids.get(aid_friend, []))
+                friend["monitor_group_ids"] = gids
+                # 和 group_ids 一一对应：群名（没记录过就是空串，页面只显示群号）
+                friend["monitor_group_names"] = [self._group_display_name(g) for g in gids]
                 try:
                     _tier, tier_name = level_rank(int(friend.get("level_id") or 0))
                 except Exception:
@@ -2871,11 +3307,31 @@ class MajsoulMonitorPlugin(Star):
             account_id = int(data.get("account_id") or 0)
         except (TypeError, ValueError):
             account_id = 0
+        nickname = ""
+        try:
+            nickname = self._monitor.friend_nickname(account_id) or ""
+        except Exception:
+            nickname = ""
         ok, message = await self._monitor.remove_friend(account_id)
         if ok:
-            logger.info(f"[MajsoulMonitor] 删除好友: {show_uid(account_id)}")
+            who = f"{nickname}({show_uid(account_id)})" if nickname else show_uid(account_id)
+            logger.info(f"[MajsoulMonitor] 删除好友: {who}")
             return jsonify({"ok": True, "message": "✅ " + message})
         return jsonify({"ok": False, "message": "❌ " + message})
+
+    async def _api_sync_group_names(self):
+        """API: 从平台拉一遍群列表，把所有群的群名补齐（网页「同步群名」按钮）"""
+        try:
+            updated = await self._sync_group_names(force=True)
+        except Exception as exc:
+            logger.warning(f"[MajsoulMonitor] 同步群名失败: {exc}")
+            return jsonify({"ok": False, "message": f"同步失败: {exc}"})
+        total = len(self._group_names)
+        if updated:
+            message = f"已更新 {updated} 个群名（共记录 {total} 个群）"
+        else:
+            message = f"群名没有变化（已记录 {total} 个群）"
+        return jsonify({"ok": True, "message": message, "data": {"updated": updated, "total": total}})
 
     def _remove_group_monitoring(self, group_id: str, reason: str = "") -> Dict[str, int]:
         """机器人离开某个群后，把这个群相关的监控和播报设置全部删掉。
@@ -3950,7 +4406,7 @@ class MajsoulMonitorPlugin(Star):
             except Exception as exc:  # noqa: BLE001
                 # 查不到就退回牌谱里的 grading_score，但不能静默
                 logger.debug(
-                    f"[MajsoulMonitor] 查询 {account_id} 的当前段位失败（用牌谱值兜底）："
+                    f"[MajsoulMonitor] 查询 {show_uid(account_id)} 的当前段位失败（用牌谱值兜底）："
                     f"{exc.__class__.__name__}: {exc}"
                 )
                 data = None
@@ -3985,6 +4441,18 @@ class MajsoulMonitorPlugin(Star):
         except Exception:
             pass
         return delta, "", "", fresh
+
+    def _account_label(self, uid) -> str:
+        """日志里显示账号：有在线会话就用「昵称(数字ID)」，否则退回数字 ID。"""
+        text = str(uid or "")
+        try:
+            if self._monitor is not None:
+                label = str(self._monitor.account_label(text) or "").strip()
+                if label:
+                    return label
+        except Exception:  # noqa: BLE001
+            pass
+        return show_uid(text)
 
     @staticmethod
     def _account_display_name(account, robot: bool = False) -> str:
@@ -4187,11 +4655,20 @@ class MajsoulMonitorPlugin(Star):
         lines.append(f"{room_name} {time_str}")
 
         rank_labels = {1: "一位", 2: "二位", 3: "三位", 4: "四位"}
+        # 王座间（四人东/南 15/16、三人东/南 25/26）只有雀圣和魂天：
+        # 魂天的段位分叫魂珠，用 ❂ 表示（数值也除以 100）
+        konten_room = mode_int in KONTEN_ROOM_MODE_IDS
         for idx, (player, score) in enumerate(ranked, 1):
             seat = int(getattr(player, "seat", -1))
             label = rank_labels.get(idx, f"{idx}位")
             line = f"{label} {score} {name_by_seat.get(seat) or '电脑'}"
-            pt_text = _format_pt_delta(pt_by_seat.get(seat, 0), level_by_seat.get(seat, 0))
+            seat_level = int(level_by_seat.get(seat, 0) or 0)
+            try:
+                is_konten = MajsoulLevel(seat_level).is_konten() if seat_level else False
+            except Exception:
+                is_konten = False
+            unit = "❂" if (konten_room and is_konten) else "pt"
+            pt_text = _format_pt_delta(pt_by_seat.get(seat, 0), seat_level, unit)
             if pt_text:
                 line += " " + pt_text
             lines.append(line)
@@ -4291,7 +4768,9 @@ class MajsoulMonitorPlugin(Star):
             if key and key not in keys:
                 keys.append(key)
         if not keys:
-            logger.info(f"[MajsoulMonitor] {nickname or account_id} 对局结束，但相关玩家都不在监控列表，忽略")
+            logger.info(
+                f"[MajsoulMonitor] {nickname or show_uid(account_id)} 对局结束，但相关玩家都不在监控列表，忽略"
+            )
             return
 
         seats = {int(a.account_id): int(a.seat) for a in list(getattr(head, "accounts", []) or [])}
@@ -4316,7 +4795,23 @@ class MajsoulMonitorPlugin(Star):
         unranked = str(info.get("unranked_kind") or "") or unranked_kind(
             head_mode, contest_uid, room_id
         )
-        room_label = unranked_label(unranked, contest_uid, room_id) if unranked else ""
+        # 比赛场要显示玩家看到的比赛场 ID，而不是对局 meta 里的内部 uid
+        contest_code = str(info.get("contest_code") or "").strip()
+        if not contest_code and contest_uid and self._monitor is not None:
+            try:
+                contest_code = self._monitor.contest_code(contest_uid)
+            except Exception:
+                contest_code = contest_uid
+        room_label = (
+            unranked_label(
+                unranked,
+                contest_code or contest_uid,
+                room_id,
+                mode_name=friend_mode_label(head, _head_player_count(head)) if unranked == "friend" else "",
+            )
+            if unranked
+            else ""
+        )
         now = int(time.time())
 
         # 逐个玩家更新记录（同桌的多个监控玩家都会更新）
@@ -4590,7 +5085,9 @@ class MajsoulMonitorPlugin(Star):
         account_id = int(friend.get("account_id") or 0)
         if not account_id:
             return None
-        logger.info(f"[MajsoulMonitor] 玩家 {key!r} 在好友列表里找到 -> {account_id}")
+        logger.info(
+            f"[MajsoulMonitor] 玩家 {key!r} 在好友列表里找到 -> {friend.get('nickname') or ''}({show_uid(account_id)})"
+        )
         # 好友资料里四麻、三麻段位都有，原样带回；没上过雀杰的一边是 0，显示时自动省略
         return {
             "account_id": account_id,
@@ -4860,6 +5357,13 @@ class MajsoulMonitorPlugin(Star):
         text = (getattr(event, "message_str", "") or "").strip()
         if not text:
             return
+        # 顺手把群名记下来（网页上显示「群名 + 群号」，有缓存节流，不会每条都问）
+        try:
+            group_id_for_name = str(getattr(event, "get_group_id", lambda: "")() or "").strip()
+            if group_id_for_name:
+                await self._remember_group_name(event, group_id_for_name)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"[MajsoulMonitor] 记录群名失败: {exc}")
         # 默认指令名由 @filter.command 的静态处理器负责，这里跳过避免重复回复
         # 最后两个是改名前的旧默认指令名：直接忽略，避免被当成「雀魂播报 + xxx」的参数
         for default_name in (
@@ -5050,7 +5554,7 @@ class MajsoulMonitorPlugin(Star):
         if current_uid and self._monitor.paipu_permission(current_uid) == "无":
             self._write_query_log(
                 "SYSTEM", "牌谱回放失败",
-                f"在{place}请求回放牌谱 {game_id}，原因：当前账号 {show_uid(current_uid)} 今天没有牌谱权限",
+                f"在{place}请求回放牌谱 {game_id}，原因：当前账号 {self._account_label(current_uid)} 今天没有牌谱权限",
                 "ERROR",
             )
             yield event.plain_result("❌ 当前账号今天没有牌谱权限，无法查看牌谱回放。")
@@ -5121,12 +5625,11 @@ class MajsoulMonitorPlugin(Star):
             else:
                 expire_ts = self._group_expire_ts(info, matched_gid)
                 if expire_ts:
+                    # 无限制时什么都不写，只留玩家名字
                     line += (
                         "  播报到期："
                         + datetime.fromtimestamp(expire_ts).strftime("%Y-%m-%d %H:%M")
                     )
-                else:
-                    line += "  播报到期：不限制"
             lines.append(line)
         yield event.plain_result("\n".join(lines))
 
@@ -5535,8 +6038,27 @@ async def _api_accounts_list(self):
     if monitor is not None:
         for session in getattr(monitor, "_sessions", {}).values():
             sessions[str(session.uid)] = session
+    # 好友列表里上次刷新的数量/上限（没刷过就没有数据，页面显示 -）
+    friend_stats = {}
+    if monitor is not None:
+        try:
+            for snap in monitor.friends_snapshot():
+                snap_uid = str(snap.get("uid") or "")
+                if not snap_uid:
+                    continue
+                # friends_at 为 0 说明这个账号还没成功拉过好友列表，页面显示 -
+                if not int(snap.get("friends_at") or 0):
+                    continue
+                friend_stats[snap_uid] = {
+                    "count": int(snap.get("count") or 0),
+                    "max": int(snap.get("friend_max") or 0),
+                    "at": int(snap.get("friends_at") or 0),
+                }
+        except Exception as exc:
+            logger.debug(f"[MajsoulMonitor] 读取好友快照失败（账号池好友列显示 -）：{exc}")
     for idx, acc in enumerate(accounts, 1):
         uid = str(acc.get("uid", ""))
+        fstat = friend_stats.get(uid) or None
         is_current = bool(monitor and current_uid == uid)
         session = sessions.get(uid)
         if session is not None and session.is_online():
@@ -5551,6 +6073,9 @@ async def _api_accounts_list(self):
             "display_uid": encode_account_id(int(uid)) if uid.isdigit() else 0,
             "username_masked": _mask_username(acc.get("username", "")),
             "nickname": acc.get("nickname", ""),
+            "friend_count": (fstat or {}).get("count"),
+            "friend_max": (fstat or {}).get("max"),
+            "friends_at": (fstat or {}).get("at", 0),
             "enabled": acc.get("enabled", True),
             "paipu_perm": monitor.paipu_permission(uid) if monitor is not None else "有",
             "paipu_today": monitor.quota.used(uid) if monitor is not None else 0,
@@ -5653,11 +6178,13 @@ async def _api_accounts_delete(self):
         return jsonify({"ok": False, "message": "请输入要删除的账号标识"})
     accounts = _load_accounts()
     removed_uid = ""
+    removed_label = ""
     removed = False
     if identifier.isdigit():
         idx = int(identifier) - 1
         if 0 <= idx < len(accounts):
             removed_uid = str(accounts[idx].get("uid", ""))
+            removed_label = str(accounts[idx].get("nickname") or "").strip()
             accounts.pop(idx)
             removed = True
     if not removed:
@@ -5665,6 +6192,7 @@ async def _api_accounts_delete(self):
         for acc in accounts:
             if str(acc.get("uid")) == identifier or str(acc.get("username")) == identifier:
                 removed_uid = str(acc.get("uid", ""))
+                removed_label = str(acc.get("nickname") or "").strip()
             else:
                 kept.append(acc)
         if removed_uid:
@@ -5673,6 +6201,13 @@ async def _api_accounts_delete(self):
     if removed:
         _save_accounts(accounts)
         monitor = self._monitor
+        if monitor is not None and removed_uid:
+            try:
+                # 账号池里没存昵称时，用在线会话的 label（昵称 + 数字 ID）
+                if not removed_label:
+                    removed_label = str(monitor.account_label(removed_uid) or "").strip()
+            except Exception:
+                pass
         if monitor is not None:
             try:
                 # 删除后当天重新加入时，牌谱权限恢复为「有」
@@ -5682,7 +6217,10 @@ async def _api_accounts_delete(self):
                 await monitor.refresh_sessions()
             except Exception as exc:
                 logger.warning(f"[MajsoulMonitor] 删除账号后处理失败: {exc}")
-        self._write_query_log("SYSTEM", "删除账号", f"{show_uid(removed_uid) or identifier}", "INFO")
+        shown = show_uid(removed_uid) or identifier
+        if removed_label and removed_label != shown:
+            shown = f"{removed_label}({shown})" if "(" not in removed_label else removed_label
+        self._write_query_log("SYSTEM", "删除账号", shown, "INFO")
         return jsonify({"ok": True, "message": "删除成功"})
     return jsonify({"ok": False, "message": "未找到对应账号"})
 

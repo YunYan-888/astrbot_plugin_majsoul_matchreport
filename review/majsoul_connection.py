@@ -242,6 +242,10 @@ class MajsoulConnection:
         self.access_token = ""
         # 好友上限（服务端 fetchFriendList 返回的 friend_max_count），0 = 还不知道
         self.friend_max_count = 0
+        # 最近几次 fetchGameRecord 的原始返回：同一局先取头部（判结束）、再取完整牌谱时直接复用，
+        # 这样一局只向服务端拉一次（牌谱特别大，拉两次既慢又浪费查询次数）
+        self._record_cache: Dict[str, Any] = {}
+        self._record_cache_limit = 30
 
     async def connect(self):
         logger.debug(
@@ -327,6 +331,37 @@ class MajsoulConnection:
             )
         return friends
 
+    async def fetch_contest_list(self, start: int = 0, count: int = 30) -> list[dict]:
+        """拉大会（比赛场）列表。
+
+        列表里同时带内部 `unique_id`（对局 meta 里的 contest_uid 就是这个）和玩家在游戏里
+        看到的比赛场 ID `contest_id`，用来把播报里的内部 ID 换成真正的比赛场 ID。
+        """
+        res = await self.rpc_call(
+            ".lq.Lobby.fetchCustomizedContestList",
+            {"start": int(start), "count": int(count), "lang": "chs"},
+        )
+        code = int(getattr(res.error, "code", 0) or 0)
+        if code:
+            raise ValueError(f"fetchCustomizedContestList failed: {_error_summary(res.error)}")
+        contests: list[dict] = []
+        items = list(getattr(res, "contests", []) or []) + list(
+            getattr(res, "follow_contests", []) or []
+        )
+        for item in items:
+            unique_id = str(getattr(item, "unique_id", "") or "")
+            contest_id = str(getattr(item, "contest_id", "") or "")
+            if not unique_id or not contest_id:
+                continue
+            contests.append(
+                {
+                    "unique_id": unique_id,
+                    "contest_id": contest_id,
+                    "name": str(getattr(item, "contest_name", "") or ""),
+                }
+            )
+        return contests
+
     async def remove_friend(self, target_id: int) -> None:
         """删除好友（好友列表里的删除按钮）。"""
         res = await self.rpc_call(".lq.Lobby.removeFriend", {"target_id": int(target_id)})
@@ -398,14 +433,27 @@ class MajsoulConnection:
         """按对局 uuid 拉牌谱头（顺位/点数/玩家）。
 
         注意：必须带 client_version_string，否则服务端返回 code=151。
+
+        返回的 ResGameRecord 里同时带着完整牌谱（data），所以顺手存一份，
+        紧接着 fetch_logs 解析同一局时直接复用，不再重复请求服务端。
         """
-        return await self.rpc_call(
+        res = await self.rpc_call(
             ".lq.Lobby.fetchGameRecord",
             {
                 "game_uuid": game_uuid,
                 "client_version_string": self.client_version_string,
             },
         )
+        try:
+            code = int(getattr(getattr(res, "error", None), "code", 1) or 0)
+            if code == 0 and getattr(res, "data", None):
+                key = str(game_uuid or "").split("_")[0]
+                self._record_cache[key] = res
+                while len(self._record_cache) > self._record_cache_limit:
+                    self._record_cache.pop(next(iter(self._record_cache)), None)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"[majsoul-review] 缓存牌谱原始返回失败: {exc}")
+        return res
 
     async def fetch_account_statistic_info(self, account_id: int):
         """查询任意玩家的雀魂统计（含最近 10 局顺位），不需要好友关系。"""
@@ -791,17 +839,24 @@ class MajsoulConnection:
                 except ValueError:
                     target_id = None
 
-        await _notify(progress_cb, f"调用 fetchGameRecord 拉取牌谱: {log_id}")
-        logs = cast(
-            liblq.ResGameRecord,
-            await self.rpc_call(
-                ".lq.Lobby.fetchGameRecord",
-                {
-                    "game_uuid": log_id,
-                    "client_version_string": self.client_version_string,
-                },
-            ),
-        )
+        # 同一局刚用 fetch_game_record 取过头部的话，直接用那份返回，省一次请求
+        logs = self._record_cache.pop(log_id, None)
+        if logs is not None and not getattr(logs, "data", None):
+            logs = None
+        if logs is not None:
+            await _notify(progress_cb, f"复用刚才拉过的牌谱数据: {log_id}")
+        else:
+            await _notify(progress_cb, f"调用 fetchGameRecord 拉取牌谱: {log_id}")
+            logs = cast(
+                liblq.ResGameRecord,
+                await self.rpc_call(
+                    ".lq.Lobby.fetchGameRecord",
+                    {
+                        "game_uuid": log_id,
+                        "client_version_string": self.client_version_string,
+                    },
+                ),
+            )
         if logs.error.code:
             raise ValueError(f"fetchGameRecord failed: {logs.error}")
 
